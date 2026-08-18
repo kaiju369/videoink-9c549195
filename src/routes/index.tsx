@@ -664,7 +664,7 @@ function Workstation() {
   });
 
   return (
-    <main className="flex h-screen w-full flex-col bg-background text-foreground">
+    <main className="flex h-dvh w-full flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-2">
         <h1 className="font-display text-xl italic tracking-tight">VideoInk</h1>
         <div className="flex min-w-[240px] flex-1 items-center gap-2">
