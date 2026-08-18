@@ -56,7 +56,7 @@ import {
   saveKeyMap,
   type KeyMap,
 } from "@/lib/videoink/shortcuts";
-import { parseYouTubeId } from "@/lib/videoink/youtube";
+import { isSafeVideoUrl, parseYouTubeId, parseYouTubeStart } from "@/lib/videoink/youtube";
 import {
   SCHEMA_VERSION,
   formatTime,
