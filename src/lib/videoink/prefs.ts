@@ -205,12 +205,16 @@ export interface Prefs {
   startCap: CapStyle;
   endCap: CapStyle;
   shapeFill: boolean;
-  eraserMode: "stroke" | "freehand" | "rect" | "circle";
+  eraserMode: "stroke" | "freehand" | "rect" | "circle" | "lasso";
   eraserSize: number;
   pressure: PressureLevel;
   smoothing: number;
   recognize: boolean;
+  /** show a toast/label whenever a stroke is converted to a shape */
+  recognizeFeedback: boolean;
   touchDrawing: boolean;
+  /** active pen profile for the pen tool */
+  penProfile: PenProfileId;
   text: {
     fontSize: number;
     fontFamily: string;
