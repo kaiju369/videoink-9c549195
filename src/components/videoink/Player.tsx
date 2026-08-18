@@ -16,6 +16,8 @@ export interface PlayerHandle {
   play: () => void;
   pause: () => void;
   seek: (t: number) => void;
+  /** nudge by one frame at the given fps (default 30); pauses first */
+  stepFrame: (dir: 1 | -1, fps?: number) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
   getPlaybackRate: () => number;
@@ -26,7 +28,10 @@ export interface PlayerHandle {
   getVideoElement: () => HTMLVideoElement | null;
   getAspectRatio: () => number;
   requestPictureInPicture: () => void;
+  /** resolves once the currently displayed frame is painted (best effort) */
+  waitForFrame: () => Promise<void>;
 }
+
 
 interface YTPlayer {
   playVideo: () => void;
