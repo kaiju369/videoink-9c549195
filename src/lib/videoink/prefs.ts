@@ -22,6 +22,164 @@ export const INK_COLORS = [
   "#111111",
 ];
 
+/** Canonical palette shared by pen, highlighter, shapes and text. */
+export const PALETTE: { name: string; hex: string }[] = [
+  { name: "Black", hex: "#111111" },
+  { name: "White", hex: "#f5f1e8" },
+  { name: "Red", hex: "#ef4444" },
+  { name: "Orange", hex: "#f97316" },
+  { name: "Yellow", hex: "#ffd166" },
+  { name: "Green", hex: "#22c55e" },
+  { name: "Cyan", hex: "#22d3ee" },
+  { name: "Blue", hex: "#3b82f6" },
+  { name: "Purple", hex: "#a855f7" },
+  { name: "Pink", hex: "#ec4899" },
+];
+
+/* ------------------------------------------------------------------ */
+/* pen profiles                                                        */
+/* ------------------------------------------------------------------ */
+
+export type PenProfileId =
+  | "ballpoint"
+  | "pencil"
+  | "marker"
+  | "fountain"
+  | "brush"
+  | "highlighter"
+  | "technical";
+
+export interface PenProfile {
+  id: PenProfileId;
+  label: string;
+  /** multiplier applied to the configured pen size */
+  widthScale: number;
+  opacity: number;
+  /** perfect-freehand thinning at pressure sensitivity "medium" */
+  thinning: number;
+  smoothing: number;
+  streamline: number;
+  /** pressure curve exponent: <1 boosts light touches, >1 needs more force */
+  pressureExponent: number;
+  /** how much stroke speed thins the line (0 = none) */
+  velocityResponse: number;
+  startTaper: number;
+  endTaper: number;
+  cap: boolean;
+  /** subtle grain, used by the pencil profile */
+  grain: number;
+}
+
+export const PEN_PROFILES: Record<PenProfileId, PenProfile> = {
+  ballpoint: {
+    id: "ballpoint",
+    label: "Ballpoint",
+    widthScale: 1,
+    opacity: 1,
+    thinning: 0.32,
+    smoothing: 0.55,
+    streamline: 0.32,
+    pressureExponent: 1,
+    velocityResponse: 0.1,
+    startTaper: 0,
+    endTaper: 0,
+    cap: true,
+    grain: 0,
+  },
+  pencil: {
+    id: "pencil",
+    label: "Pencil",
+    widthScale: 0.95,
+    opacity: 0.9,
+    thinning: 0.55,
+    smoothing: 0.42,
+    streamline: 0.22,
+    pressureExponent: 0.85,
+    velocityResponse: 0.18,
+    startTaper: 0,
+    endTaper: 0,
+    cap: true,
+    grain: 0.35,
+  },
+  marker: {
+    id: "marker",
+    label: "Marker",
+    widthScale: 1.6,
+    opacity: 1,
+    thinning: 0.08,
+    smoothing: 0.62,
+    streamline: 0.4,
+    pressureExponent: 1,
+    velocityResponse: 0,
+    startTaper: 0,
+    endTaper: 0,
+    cap: true,
+    grain: 0,
+  },
+  fountain: {
+    id: "fountain",
+    label: "Fountain pen",
+    widthScale: 1.15,
+    opacity: 1,
+    thinning: 0.72,
+    smoothing: 0.6,
+    streamline: 0.3,
+    pressureExponent: 0.8,
+    velocityResponse: 0.35,
+    startTaper: 0.35,
+    endTaper: 0.55,
+    cap: true,
+    grain: 0,
+  },
+  brush: {
+    id: "brush",
+    label: "Brush",
+    widthScale: 1.9,
+    opacity: 1,
+    thinning: 0.85,
+    smoothing: 0.7,
+    streamline: 0.45,
+    pressureExponent: 0.7,
+    velocityResponse: 0.5,
+    startTaper: 0.5,
+    endTaper: 0.75,
+    cap: true,
+    grain: 0,
+  },
+  highlighter: {
+    id: "highlighter",
+    label: "Highlighter",
+    widthScale: 3.2,
+    opacity: 0.35,
+    thinning: 0,
+    smoothing: 0.62,
+    streamline: 0.32,
+    pressureExponent: 1,
+    velocityResponse: 0,
+    startTaper: 0,
+    endTaper: 0,
+    cap: false,
+    grain: 0,
+  },
+  technical: {
+    id: "technical",
+    label: "Technical pen",
+    widthScale: 0.8,
+    opacity: 1,
+    thinning: 0,
+    smoothing: 0.5,
+    streamline: 0.5,
+    pressureExponent: 1,
+    velocityResponse: 0,
+    startTaper: 0,
+    endTaper: 0,
+    cap: true,
+    grain: 0,
+  },
+};
+
+export const PEN_PROFILE_LIST = Object.values(PEN_PROFILES);
+
 export type PressureLevel = "off" | "low" | "medium" | "high";
 
 export interface ToolPreset {
