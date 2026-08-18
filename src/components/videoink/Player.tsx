@@ -55,7 +55,10 @@ interface Props {
   fit?: { left: number; top: number; width: number; height: number } | undefined;
   onReady?: (info: { duration: number; title: string; aspect: number }) => void;
   onPlayStateChange?: (playing: boolean) => void;
+  /** surfaced so the app can show a real message instead of a blank stage */
+  onError?: (message: string) => void;
 }
+
 
 export const Player = forwardRef<PlayerHandle, Props>(function Player(
   { source, fit, onReady, onPlayStateChange },
