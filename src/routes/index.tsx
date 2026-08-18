@@ -78,7 +78,12 @@ const TOOL_CYCLE: ToolId[] = [
   "arrow",
   "shape",
   "lasso",
+  "lassoEraser",
 ];
+
+/** Eraser modes cycled by the eraser hotkey. */
+const ERASER_MODES: Prefs["eraserMode"][] = ["stroke", "freehand", "rect", "circle", "lasso"];
+
 
 /** Viewport rectangle of the visible video content, for screen-capture cropping. */
 function stageViewportRect(
