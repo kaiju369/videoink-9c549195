@@ -64,17 +64,32 @@ import type { ExportFormat } from "@/lib/videoink/export";
 
 /* ------------------------------ toolbar ------------------------------ */
 
-const TOOL_BUTTONS: { tool: ToolId; action: ActionId; icon: typeof Pen; label: string }[] = [
+const TOOL_BUTTONS: {
+  tool: ToolId;
+  action?: ActionId;
+  icon: typeof Pen;
+  label: string;
+}[] = [
   { tool: "select", action: "tool.select", icon: MousePointer2, label: "Select" },
   { tool: "pen", action: "tool.pen", icon: Pen, label: "Pen" },
   { tool: "highlighter", action: "tool.highlighter", icon: Highlighter, label: "Highlighter" },
   { tool: "eraser", action: "tool.eraser", icon: Eraser, label: "Eraser" },
+  { tool: "lassoEraser", icon: Scissors, label: "Lasso eraser" },
   { tool: "text", action: "tool.text", icon: Type, label: "Text" },
   { tool: "line", action: "tool.line", icon: Minus, label: "Line" },
   { tool: "arrow", action: "tool.arrow", icon: ArrowUpRight, label: "Arrow" },
   { tool: "shape", action: "tool.shape", icon: Square, label: "Shape" },
-  { tool: "lasso", action: "tool.lasso", icon: Lasso, label: "Lasso" },
+  { tool: "lasso", action: "tool.lasso", icon: Lasso, label: "Lasso select" },
 ];
+
+const ERASER_MODE_LABELS: Record<Prefs["eraserMode"], string> = {
+  stroke: "Whole",
+  freehand: "Partial",
+  rect: "Rect",
+  circle: "Circle",
+  lasso: "Lasso",
+};
+
 
 
 export const SHAPE_KINDS: ShapeKind[] = [
