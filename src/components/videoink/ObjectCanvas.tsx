@@ -722,8 +722,8 @@ export function ObjectCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={finish}
-        onPointerCancel={finish}
-        onLostPointerCapture={finish}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         onDoubleClick={(e) => {
           if (!enabled) return;
           const box = getBounds();
