@@ -895,6 +895,21 @@ function Workstation() {
         )}
       </div>
 
+      {/* Floating radial toolset — additive companion to the main toolbar. */}
+      <RadialToolDock
+        tool={tool}
+        setTool={setTool}
+        prefs={prefs}
+        setPrefs={setPrefs}
+        onUndo={editor.undo}
+        onRedo={editor.redo}
+        canUndo={editor.canUndo}
+        canRedo={editor.canRedo}
+        hidden={!annotating || settingsOpen || exportOpen || !!editingTextId}
+      />
+
+
+
       <ExportDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
