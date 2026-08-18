@@ -58,7 +58,7 @@ import {
   type ActionId,
   type KeyMap,
 } from "@/lib/videoink/shortcuts";
-import { PEN_PRESETS, type Prefs } from "@/lib/videoink/prefs";
+import { PEN_PRESETS, PEN_PROFILE_LIST, type Prefs } from "@/lib/videoink/prefs";
 import { formatTime, type Page, type ShapeKind, type TextObject, type ToolId } from "@/lib/videoink/types";
 import type { ExportFormat } from "@/lib/videoink/export";
 
