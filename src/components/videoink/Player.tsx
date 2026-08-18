@@ -256,7 +256,18 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       ref={videoRef}
       src={source.url}
       playsInline
+      preload="metadata"
+      // anonymous CORS keeps remote frames drawable on a canvas when the host allows it
+      {...(source.type === "url" ? { crossOrigin: "anonymous" as const } : {})}
       className="absolute inset-0 h-full w-full object-contain"
+      onError={() =>
+        errorCb.current?.(
+          source.type === "url"
+            ? "That video URL could not be loaded (wrong link, or the host blocks playback)"
+            : "That video file could not be played",
+        )
+      }
+
       onLoadedMetadata={(e) => {
         const v = e.currentTarget;
         const ar = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
