@@ -61,7 +61,7 @@ interface Props {
 
 
 export const Player = forwardRef<PlayerHandle, Props>(function Player(
-  { source, fit, onReady, onPlayStateChange },
+  { source, fit, onReady, onPlayStateChange, onError },
   ref,
 ) {
   const ytHostRef = useRef<HTMLDivElement>(null);
@@ -72,6 +72,8 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
   readyCb.current = onReady;
   const stateCb = useRef(onPlayStateChange);
   stateCb.current = onPlayStateChange;
+  const errorCb = useRef(onError);
+  errorCb.current = onError;
 
   useEffect(() => {
     if (!source || source.type !== "youtube") {
@@ -81,46 +83,70 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
     }
     let cancelled = false;
     setAspect(16 / 9);
-    loadYouTubeApi().then(() => {
-      if (cancelled || !ytHostRef.current) return;
-      const YT = (window as unknown as Record<string, any>)["YT"];
-      ytRef.current?.destroy();
-      ytHostRef.current.innerHTML = "";
-      const mount = document.createElement("div");
-      mount.className = "h-full w-full";
-      ytHostRef.current.appendChild(mount);
-      ytRef.current = new YT.Player(mount, {
-        videoId: source.videoId,
-        host: "https://www.youtube-nocookie.com",
-        playerVars: {
-          rel: 0,
-          modestbranding: 1,
-          playsinline: 1,
-          controls: 0,
-          disablekb: 1,
-          enablejsapi: 1,
-          origin: window.location.origin,
-        },
-        events: {
-          onReady: (e: { target: YTPlayer }) => {
-            const data = e.target.getVideoData?.();
-            readyCb.current?.({
-              duration: e.target.getDuration(),
-              title: data?.title || source.title,
-              aspect: 16 / 9,
-            });
+    loadYouTubeApi()
+      .then(() => {
+        if (cancelled || !ytHostRef.current) return;
+        const YT = (window as unknown as Record<string, any>)["YT"];
+        if (!YT?.Player) throw new Error("YouTube player unavailable");
+        ytRef.current?.destroy();
+        ytHostRef.current.innerHTML = "";
+        const mount = document.createElement("div");
+        mount.className = "h-full w-full";
+        ytHostRef.current.appendChild(mount);
+        ytRef.current = new YT.Player(mount, {
+          videoId: source.videoId,
+          host: "https://www.youtube-nocookie.com",
+          playerVars: {
+            rel: 0,
+            modestbranding: 1,
+            playsinline: 1,
+            controls: 0,
+            disablekb: 1,
+            enablejsapi: 1,
+            origin: window.location.origin,
           },
-          onStateChange: (e: { data: number }) => {
-            stateCb.current?.(e.data === 1);
+          events: {
+            onReady: (e: { target: YTPlayer }) => {
+              if (cancelled) return;
+              const data = e.target.getVideoData?.();
+              readyCb.current?.({
+                duration: e.target.getDuration(),
+                title: data?.title || source.title,
+                aspect: 16 / 9,
+              });
+            },
+            onStateChange: (e: { data: number }) => {
+              stateCb.current?.(e.data === 1);
+            },
+            onError: (e: { data: number }) => {
+              const map: Record<number, string> = {
+                2: "That YouTube video ID is invalid",
+                5: "This video can't be played in an embedded player",
+                100: "That YouTube video was removed or is private",
+                101: "The owner doesn't allow this video to be embedded",
+                150: "The owner doesn't allow this video to be embedded",
+              };
+              errorCb.current?.(map[e.data] ?? "The YouTube video could not be played");
+            },
           },
-        },
+        });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          errorCb.current?.(err instanceof Error ? err.message : "YouTube player failed to load");
       });
-    });
 
     return () => {
       cancelled = true;
+      try {
+        ytRef.current?.destroy();
+      } catch {
+        /* player may already be gone */
+      }
+      ytRef.current = null;
     };
   }, [source]);
+
 
   useImperativeHandle(
     ref,
