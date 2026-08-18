@@ -640,14 +640,35 @@ function Workstation() {
     const yt = parseYouTubeId(value);
     if (yt) {
       setSource({ type: "youtube", videoId: yt, title: "YouTube video" });
-    } else {
-      setSource({ type: "url", url: value, title: value.split("/").pop() ?? "Video" });
+      const start = parseYouTubeStart(value);
+      if (start > 0) window.setTimeout(() => playerRef.current?.seek(start), 900);
+      return;
     }
+    if (!isSafeVideoUrl(value)) {
+      toast.error("That doesn't look like a valid video link");
+      return;
+    }
+    setSource({ type: "url", url: value, title: value.split("/").pop() || "Video" });
   };
 
+  const objectUrlRef = useRef<string | null>(null);
   const openFile = (file: File) => {
-    setSource({ type: "file", url: URL.createObjectURL(file), title: file.name });
+    if (!file.type.startsWith("video/")) {
+      toast.error("Please choose a video file");
+      return;
+    }
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
+    setSource({ type: "file", url, title: file.name });
   };
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    },
+    [],
+  );
+
 
   const editingText = useMemo(
     () =>
