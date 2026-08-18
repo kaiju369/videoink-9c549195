@@ -752,7 +752,9 @@ function Workstation() {
                 setVideoTitle(info.title);
                 setAspect(info.aspect);
               }}
+              onError={(message) => toast.error(message)}
             />
+
             <ObjectCanvas
               rect={rect}
               width={stage.width}
