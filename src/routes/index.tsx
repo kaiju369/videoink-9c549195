@@ -575,10 +575,14 @@ function Workstation() {
         case "capture":
           void toggleCapture();
           break;
-        case "eraser.cycle":
-          setPrefs({ eraserMode: prefs.eraserMode === "stroke" ? "freehand" : "stroke" });
-          flashLabel("Eraser mode");
+        case "eraser.cycle": {
+          const i = ERASER_MODES.indexOf(prefs.eraserMode);
+          const next = ERASER_MODES[(i + 1) % ERASER_MODES.length]!;
+          setPrefs({ eraserMode: next });
+          setTool(next === "lasso" ? "lassoEraser" : "eraser");
+          flashLabel(`Eraser: ${next}`);
           break;
+        }
         case "page.blank":
           void addBlankPage();
           break;
