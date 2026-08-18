@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ContentRect } from "@/lib/videoink/geometry";
 import {
   eraseObjectsAt,
-  erasePartial,
   hitTest,
   nextZ,
   objectBounds,
+  objectsInCircle,
   objectsInPolygon,
   objectsIntersectingBox,
   renderObjects,
@@ -16,6 +16,7 @@ import {
   type Pt,
 } from "@/lib/videoink/objects";
 import { drawObject } from "@/lib/videoink/objects";
+import { erasePartialSweep, PartialEraseSession } from "@/lib/videoink/erase-partial";
 import { recognizeShape } from "@/lib/videoink/recognize";
 import { InkFilter, smoothStroke } from "@/lib/videoink/smooth";
 import { pressureThinning, type Prefs } from "@/lib/videoink/prefs";
@@ -46,17 +47,32 @@ interface Props {
   onRecognized?: (label: string) => void;
 }
 
+type EraserMode = "stroke" | "freehand" | "rect" | "circle" | "lasso";
+
 type Drag =
   | { mode: "ink"; id: number; points: InkPoint[]; pressureMode: "real" | "simulated" }
   | { mode: "shape"; id: number; a: Pt; b: Pt }
-  | { mode: "erase"; id: number; start: Pt; cur: Pt }
+  | { mode: "eraseStroke"; id: number; cur: Pt }
+  | { mode: "erasePartial"; id: number; cur: Pt; session: PartialEraseSession }
+  | { mode: "eraseRect"; id: number; start: Pt; cur: Pt }
+  | { mode: "eraseCircle"; id: number; start: Pt; cur: Pt }
+  | { mode: "eraseLasso"; id: number; pts: Pt[] }
   | { mode: "marquee"; id: number; start: Pt; cur: Pt }
   | { mode: "lasso"; id: number; pts: Pt[] }
   | { mode: "move"; id: number; start: Pt; base: PageObject[] }
   | { mode: "resize"; id: number; handle: Handle; from: Box; base: PageObject[]; cur: Box }
   | { mode: "text"; id: number; start: Pt; cur: Pt };
 
-const ERASERS: ToolId[] = ["eraser", "freehandEraser", "rectEraser", "circleEraser"];
+const ERASER_TOOLS: ToolId[] = ["eraser", "lassoEraser", "freehandEraser", "rectEraser", "circleEraser"];
+
+/** Resolve which eraser behaviour a given tool/prefs combination selects. */
+function eraserModeOf(tool: ToolId, prefs: Prefs): EraserMode {
+  if (tool === "lassoEraser") return "lasso";
+  if (tool === "freehandEraser") return "freehand";
+  if (tool === "rectEraser") return "rect";
+  if (tool === "circleEraser") return "circle";
+  return prefs.eraserMode;
+}
 
 export function ObjectCanvas({
   rect,
@@ -76,8 +92,69 @@ export function ObjectCanvas({
   const raf = useRef<number | null>(null);
   const filter = useRef(new InkFilter(0.5));
   const [, force] = useState(0);
+  const [dprTick, setDprTick] = useState(0);
+  /** cached CSS bounding rect of the overlay canvas; invalidated on resize/scroll */
+  const boundsRef = useRef<DOMRect | null>(null);
+  /** last known pointer position in normalized content space, for the eraser cursor ring */
+  const hoverRef = useRef<Pt | null>(null);
+  const reducedMotionRef = useRef(false);
+  /** true once begin()/beginTransient() has been called for the in-flight drag */
+  const txOpenRef = useRef(false);
 
   const { objects, selection } = editor;
+
+  const getBounds = useCallback(() => {
+    if (!boundsRef.current && liveRef.current) {
+      boundsRef.current = liveRef.current.getBoundingClientRect();
+    }
+    return boundsRef.current ?? new DOMRect(0, 0, width, height);
+  }, [width, height]);
+
+  useEffect(() => {
+    const invalidate = () => {
+      boundsRef.current = null;
+    };
+    invalidate();
+    window.addEventListener("resize", invalidate);
+    window.addEventListener("scroll", invalidate, true);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && liveRef.current) {
+      ro = new ResizeObserver(invalidate);
+      ro.observe(liveRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", invalidate);
+      window.removeEventListener("scroll", invalidate, true);
+      ro?.disconnect();
+    };
+  }, [width, height, rect]);
+
+  // Track prefers-reduced-motion so any animated affordance can be skipped.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotionRef.current = mq.matches;
+    const onChange = () => {
+      reducedMotionRef.current = mq.matches;
+    };
+    mq.addEventListener ? mq.addEventListener("change", onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+
+  // Watch for devicePixelRatio changes (moving window between monitors, OS
+  // zoom, etc.) and resize the canvas backing stores to match.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const dpr = window.devicePixelRatio || 1;
+    const mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    const onChange = () => setDprTick((n) => n + 1);
+    mq.addEventListener ? mq.addEventListener("change", onChange) : mq.addListener(onChange);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", onChange) : mq.removeListener(onChange);
+    };
+  }, [dprTick]);
 
   const setup = useCallback(
     (canvas: HTMLCanvasElement | null) => {
@@ -109,7 +186,7 @@ export function ObjectCanvas({
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
     renderObjects(ctx, visible, rect);
-  }, [visible, rect, width, height, setup]);
+  }, [visible, rect, width, height, setup, dprTick]);
 
   const px = useCallback((p: Pt) => ({
     x: rect.left + p.x * rect.width,
@@ -148,15 +225,16 @@ export function ObjectCanvas({
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.restore();
     }
-    if (d?.mode === "marquee" || (d?.mode === "erase" && (tool === "rectEraser" || tool === "circleEraser"))) {
-      const a = px(d.mode === "marquee" ? d.start : d.start);
-      const b = px(d.mode === "marquee" ? d.cur : d.cur);
+    if (d?.mode === "marquee" || d?.mode === "eraseRect" || d?.mode === "eraseCircle") {
+      const a = px(d.start);
+      const b = px(d.cur);
+      const isEraser = d.mode !== "marquee";
       ctx.save();
-      ctx.strokeStyle = d.mode === "marquee" ? "#7ec8ff" : "#ff8a7a";
-      ctx.fillStyle = d.mode === "marquee" ? "rgba(126,200,255,0.12)" : "rgba(255,138,122,0.12)";
+      ctx.strokeStyle = isEraser ? "#ff8a7a" : "#7ec8ff";
+      ctx.fillStyle = isEraser ? "rgba(255,138,122,0.12)" : "rgba(126,200,255,0.12)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([5, 4]);
-      if (tool === "circleEraser" && d.mode === "erase") {
+      if (d.mode === "eraseCircle") {
         const r = Math.hypot(b.x - a.x, b.y - a.y);
         ctx.beginPath();
         ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
@@ -170,10 +248,11 @@ export function ObjectCanvas({
       }
       ctx.restore();
     }
-    if (d?.mode === "lasso" && d.pts.length > 1) {
+    if ((d?.mode === "lasso" || d?.mode === "eraseLasso") && d.pts.length > 1) {
+      const isEraser = d.mode === "eraseLasso";
       ctx.save();
-      ctx.strokeStyle = "#7ec8ff";
-      ctx.fillStyle = "rgba(126,200,255,0.10)";
+      ctx.strokeStyle = isEraser ? "#ff8a7a" : "#7ec8ff";
+      ctx.fillStyle = isEraser ? "rgba(255,138,122,0.10)" : "rgba(126,200,255,0.10)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 4]);
       ctx.beginPath();
@@ -187,6 +266,26 @@ export function ObjectCanvas({
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+    }
+
+    // Live eraser radius indicator: a static ring at the last known pointer
+    // position (no animation, so it respects prefers-reduced-motion trivially).
+    if (enabled && hoverRef.current) {
+      const mode = eraserModeOf(tool, prefs);
+      const showRing =
+        ERASER_TOOLS.includes(tool) && (mode === "stroke" || mode === "freehand");
+      if (showRing) {
+        const center = px(hoverRef.current);
+        const radiusPx = prefs.eraserSize * rect.height;
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, Math.max(2, radiusPx), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     // selection chrome
@@ -209,7 +308,7 @@ export function ObjectCanvas({
       }
       ctx.restore();
     }
-  }, [setup, width, height, tool, prefs, rect, px, selBox]);
+  }, [setup, width, height, tool, prefs, rect, px, selBox, dprTick]);
 
   useEffect(() => {
     renderLive();
@@ -221,7 +320,7 @@ export function ObjectCanvas({
 
   /* ------------------------------ pointer ------------------------------ */
   const toNorm = (e: React.PointerEvent): InkPoint => {
-    const box = liveRef.current!.getBoundingClientRect();
+    const box = getBounds();
     const x = (e.clientX - box.left - rect.left) / rect.width;
     const y = (e.clientY - box.top - rect.top) / rect.height;
     const real = e.pointerType === "pen" && e.pressure > 0;
@@ -240,23 +339,27 @@ export function ObjectCanvas({
     return null;
   };
 
-  const eraseAt = (p: Pt) => {
+  /** Whole-object eraser: remove anything touched, transient (no commit) so a
+   *  whole drag collapses into a single undo entry via editor.commit(). */
+  const eraseStrokeAt = (p: Pt) => {
     const radius = prefs.eraserSize;
-    if (tool === "freehandEraser") {
-      const { removed, added } = erasePartial(editor.objects, p.x, p.y, radius);
-      if (!removed.length) return;
-      editor.apply((prev) => {
-        const ids = removed.map((r) => r.id);
-        let z = nextZ(prev);
-        return [
-          ...prev.filter((o) => !ids.includes(o.id)),
-          ...added.map((s) => ({ ...s, z: z++ })),
-        ];
-      });
-      return;
-    }
     const hit = eraseObjectsAt(editor.objects, p.x, p.y, radius);
-    if (hit.length) editor.remove(hit.map((o) => o.id));
+    if (!hit.length) return;
+    const ids = new Set(hit.map((o) => o.id));
+    editor.apply((prev) => prev.filter((o) => !ids.has(o.id)), false);
+  };
+
+  const abortDrag = () => {
+    if (txOpenRef.current) {
+      editor.abort();
+      txOpenRef.current = false;
+    }
+    drag.current = null;
+    if (raf.current != null) {
+      cancelAnimationFrame(raf.current);
+      raf.current = null;
+    }
+    renderLive();
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -264,7 +367,11 @@ export function ObjectCanvas({
     if (e.pointerType === "touch" && !prefs.touchDrawing) return;
     if (e.button === 2) return;
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
     const p = toNorm(e);
     const tol = 0.012;
 
@@ -321,14 +428,35 @@ export function ObjectCanvas({
       return;
     }
 
-    if (ERASERS.includes(tool)) {
-      if (tool === "rectEraser" || tool === "circleEraser") {
-        drag.current = { mode: "erase", id: e.pointerId, start: p, cur: p };
+    if (ERASER_TOOLS.includes(tool)) {
+      const mode = eraserModeOf(tool, prefs);
+      editor.begin();
+      txOpenRef.current = true;
+      if (mode === "rect") {
+        drag.current = { mode: "eraseRect", id: e.pointerId, start: p, cur: p };
         schedule();
         return;
       }
-      drag.current = { mode: "erase", id: e.pointerId, start: p, cur: p };
-      eraseAt(p);
+      if (mode === "circle") {
+        drag.current = { mode: "eraseCircle", id: e.pointerId, start: p, cur: p };
+        schedule();
+        return;
+      }
+      if (mode === "lasso") {
+        drag.current = { mode: "eraseLasso", id: e.pointerId, pts: [p] };
+        schedule();
+        return;
+      }
+      if (mode === "freehand") {
+        const session = new PartialEraseSession(editor.objects);
+        session.step(p, p, prefs.eraserSize);
+        const result = session.result();
+        if (result) editor.apply(() => result, false);
+        drag.current = { mode: "erasePartial", id: e.pointerId, cur: p, session };
+        return;
+      }
+      drag.current = { mode: "eraseStroke", id: e.pointerId, cur: p };
+      eraseStrokeAt(p);
       return;
     }
 
@@ -356,6 +484,10 @@ export function ObjectCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (enabled && ERASER_TOOLS.includes(tool)) {
+      hoverRef.current = toNorm(e);
+      schedule();
+    }
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     e.preventDefault();
@@ -366,7 +498,7 @@ export function ObjectCanvas({
         // Consume every coalesced sample the OS buffered: this is what keeps
         // fast stylus strokes from turning into polygons.
         const coalesced = e.nativeEvent.getCoalescedEvents?.() ?? [];
-        const box = liveRef.current!.getBoundingClientRect();
+        const box = getBounds();
         const samples: InkPoint[] =
           coalesced.length > 1
             ? coalesced.map((ev) => ({
@@ -391,10 +523,28 @@ export function ObjectCanvas({
         d.cur = p;
         schedule();
         break;
-      case "erase":
+      case "eraseRect":
+      case "eraseCircle":
         d.cur = p;
-        if (tool === "rectEraser" || tool === "circleEraser") schedule();
-        else eraseAt(p);
+        schedule();
+        break;
+      case "eraseStroke":
+        eraseStrokeAt(p);
+        d.cur = p;
+        break;
+      case "erasePartial": {
+        const prevPt = d.cur;
+        d.cur = p;
+        const changed = d.session.step(prevPt, p, prefs.eraserSize);
+        if (changed) {
+          const result = d.session.result();
+          if (result) editor.apply(() => result, false);
+        }
+        break;
+      }
+      case "eraseLasso":
+        d.pts.push(p);
+        schedule();
         break;
       case "lasso":
         d.pts.push(p);
@@ -576,7 +726,7 @@ export function ObjectCanvas({
         onLostPointerCapture={finish}
         onDoubleClick={(e) => {
           if (!enabled) return;
-          const box = liveRef.current!.getBoundingClientRect();
+          const box = getBounds();
           const p = {
             x: (e.clientX - box.left - rect.left) / rect.width,
             y: (e.clientY - box.top - rect.top) / rect.height,
