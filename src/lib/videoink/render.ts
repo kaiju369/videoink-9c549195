@@ -50,12 +50,12 @@ export interface RenderMetadata {
 
 export interface RenderOptions {
   /** target output width; defaults to the snapshot's native width when present */
-  width?: number;
+  width?: number | undefined;
   background?: string;
   /** allow upscaling past the snapshot's native resolution (default: false) */
   allowUpscale?: boolean;
   /** optional caption burned into the corner; nothing is drawn unless provided */
-  metadata?: RenderMetadata;
+  metadata?: RenderMetadata | undefined;
 }
 
 const DEFAULT_WIDTH = 1600;
