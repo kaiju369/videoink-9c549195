@@ -77,6 +77,8 @@ export interface Stroke extends ObjectBase {
   thinning?: number | undefined;
   /** extra outline smoothing (0..1) */
   smoothing?: number | undefined;
+  /** pen profile id (ballpoint, pencil, marker, fountain, brush, technical…) */
+  profile?: string | undefined;
   points: InkPoint[];
 }
 
