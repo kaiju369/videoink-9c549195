@@ -133,16 +133,61 @@ export function smoothPressure(points: InkPoint[], window = 4): InkPoint[] {
 }
 
 /**
- * Final commit-time smoothing. `amount` is 0..1 (prefs.smoothing).
+ * Synthesise a pressure signal from local speed for mouse/touch input:
+ * slower motion -> higher (wider) pressure, faster motion -> lower (thinner).
+ * `response` (0..1, profile.velocityResponse) controls how strongly speed
+ * affects the synthesised pressure; 0 leaves pressure untouched.
+ */
+export function velocityPressure(points: InkPoint[], response = 0.3): InkPoint[] {
+  if (response <= 0 || points.length < 2) return points;
+  const speeds: number[] = new Array(points.length).fill(0);
+  for (let i = 1; i < points.length; i++) {
+    speeds[i] = pointDistance(points[i]!, points[i - 1]!);
+  }
+  speeds[0] = speeds[1] ?? 0;
+  // Smooth the speed signal so width changes stay gradual rather than jittery.
+  const win = 3;
+  const smoothed = speeds.map((_, i) => {
+    let sum = 0;
+    let n = 0;
+    for (let k = i - win; k <= i + win; k++) {
+      const s = speeds[k];
+      if (s === undefined) continue;
+      sum += s;
+      n++;
+    }
+    return n ? sum / n : 0;
+  });
+  const maxSpeed = Math.max(...smoothed, 1e-6);
+  return points.map((p, i) => {
+    const norm = Math.min(1, smoothed[i]! / maxSpeed);
+    // slower (norm near 0) -> pressure boosted toward 1; faster -> thinner.
+    const synth = 1 - norm;
+    const pressure = p.pressure * (1 - response) + synth * response;
+    return { ...p, pressure: Math.min(1, Math.max(0.05, pressure)) };
+  });
+}
+
+/**
+ * Final commit-time smoothing. `amount` is 0..1 (prefs.smoothing or a pen
+ * profile's `smoothing`/`streamline` blend). Idempotent-ish: running it twice
+ * on an already-smoothed stroke produces a near-identical result because
+ * spacing and iteration count are derived purely from `amount`, not from the
+ * input density.
  */
 export function smoothStroke(points: InkPoint[], amount = 0.5): InkPoint[] {
   const clean = dedupe(points);
   if (clean.length < 3) return clean;
-  const spacing = 0.0022 + 0.0035 * amount;
+  const clampedAmount = Math.min(1, Math.max(0, amount));
+  const spacing = 0.0022 + 0.0035 * clampedAmount;
   const resampled = resample(clean, spacing);
-  const iterations = amount > 0.66 ? 2 : amount > 0.15 ? 1 : 0;
+  const iterations = clampedAmount > 0.66 ? 2 : clampedAmount > 0.15 ? 1 : 0;
   const smoothed = iterations ? chaikin(resampled, iterations) : resampled;
+  // Bound extremely long strokes so perfect-freehand / rendering stays cheap.
+  const MAX_POINTS = 1400;
   const capped =
-    smoothed.length > 1400 ? resample(smoothed, spacing * (smoothed.length / 1400)) : smoothed;
+    smoothed.length > MAX_POINTS
+      ? resample(smoothed, spacing * (smoothed.length / MAX_POINTS))
+      : smoothed;
   return smoothPressure(capped, 3);
 }
