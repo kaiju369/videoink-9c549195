@@ -984,6 +984,57 @@ export function SettingsDialog({
               />
             </div>
             <div>
+              <Label className="text-xs">Pen style</Label>
+              <Select
+                value={prefs.penProfile}
+                onValueChange={(v) => setPrefs({ penProfile: v as Prefs["penProfile"] })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PEN_PROFILE_LIST.filter((p) => p.id !== "highlighter").map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Eraser mode</Label>
+              <Select
+                value={prefs.eraserMode}
+                onValueChange={(v) => setPrefs({ eraserMode: v as Prefs["eraserMode"] })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stroke">Whole stroke</SelectItem>
+                  <SelectItem value="freehand">Partial (pixel)</SelectItem>
+                  <SelectItem value="rect">Rectangle</SelectItem>
+                  <SelectItem value="circle">Circle</SelectItem>
+                  <SelectItem value="lasso">Lasso</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-border/70 px-3 py-2">
+              <Label className="text-xs" htmlFor="vi-recog-feedback">
+                Announce recognised shapes
+              </Label>
+              <Switch
+                id="vi-recog-feedback"
+                checked={prefs.recognizeFeedback}
+                onCheckedChange={(v) => setPrefs({ recognizeFeedback: v })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-border/70 px-3 py-2">
+              <Label className="text-xs" htmlFor="vi-dock">
+                Floating radial toolset
+              </Label>
+              <Switch
+                id="vi-dock"
+                checked={prefs.dock.enabled}
+                onCheckedChange={(v) => setPrefs({ dock: { ...prefs.dock, enabled: v } })}
+              />
+            </div>
+
+            <div>
               <Label className="text-xs">Default shape</Label>
               <Select value={prefs.shapeKind} onValueChange={(v) => setPrefs({ shapeKind: v as ShapeKind })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
