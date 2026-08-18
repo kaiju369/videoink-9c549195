@@ -234,7 +234,28 @@ export interface Prefs {
   exportFormat: "png" | "jpeg" | "pdf" | "zip" | "json";
   filenameTemplate: string;
   captureReminder: boolean;
+  /** export resolution: "native" keeps the stored frame resolution */
+  exportResolution: "native" | "720" | "1080" | "1440" | "2160" | "custom";
+  exportCustomWidth: number;
+  jpegQuality: number;
+  /** optional metadata burned into exports; all off by default */
+  exportMeta: {
+    title: boolean;
+    timestamp: boolean;
+    pageNumbers: boolean;
+  };
+  /** floating radial tool dock */
+  dock: {
+    enabled: boolean;
+    /** normalized viewport position 0..1 of the button centre */
+    x: number;
+    y: number;
+    open: boolean;
+    tool: ToolId;
+    color: string;
+  };
 }
+
 
 export const DEFAULT_PREFS: Prefs = {
   tool: "pen",
