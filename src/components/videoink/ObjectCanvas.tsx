@@ -642,23 +642,23 @@ export function ObjectCanvas({
     } else if (d.mode === "lasso") {
       const hits = objectsInPolygon(editor.objects, d.pts);
       editor.setSelection(hits.map((o) => o.id));
-    } else if (d.mode === "erase" && (tool === "rectEraser" || tool === "circleEraser")) {
-      let hits: PageObject[];
-      if (tool === "rectEraser") {
-        hits = objectsIntersectingBox(editor.objects, boxOf(d.start, d.cur));
-      } else {
-        const r = Math.hypot(d.cur.x - d.start.x, d.cur.y - d.start.y);
-        hits = editor.objects.filter((o) => {
-          const b = objectBounds(o);
-          const cx = Math.max(b.x0, Math.min(d.start.x, b.x1));
-          const cy = Math.max(b.y0, Math.min(d.start.y, b.y1));
-          return Math.hypot(cx - d.start.x, cy - d.start.y) <= r;
-        });
-      }
+    } else if (d.mode === "eraseRect") {
+      const hits = objectsIntersectingBox(editor.objects, boxOf(d.start, d.cur));
       if (hits.length) editor.remove(hits.map((o) => o.id));
+    } else if (d.mode === "eraseCircle") {
+      const r = Math.hypot(d.cur.x - d.start.x, d.cur.y - d.start.y);
+      const hits = objectsInCircle(editor.objects, d.start, r);
+      if (hits.length) editor.remove(hits.map((o) => o.id));
+    } else if (d.mode === "eraseLasso") {
+      const hits = d.pts.length > 2 ? objectsInPolygon(editor.objects, d.pts) : [];
+      if (hits.length) editor.remove(hits.map((o) => o.id));
+    } else if (d.mode === "eraseStroke" || d.mode === "erasePartial") {
+      // Every sample already mutated the document transiently; seal it as one undo step.
+      editor.commit("erase");
     } else if (d.mode === "move" || d.mode === "resize") {
       editor.apply((prev) => prev, true);
     }
+
     force((n) => n + 1);
     renderLive();
   };
