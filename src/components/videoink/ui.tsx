@@ -146,19 +146,45 @@ function Hotkey({ combo }: { combo?: string | undefined }) {
 export function InkToolbar(p: ToolbarProps) {
   return (
     <div className="pointer-events-auto flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-xl border border-border/70 bg-card/95 px-2 py-1.5 shadow-lg backdrop-blur md:flex-wrap md:overflow-visible">
-      {TOOL_BUTTONS.map((t) => (
-        <Button
-          key={t.tool}
-          size="sm"
-          variant={p.tool === t.tool ? "secondary" : "ghost"}
-          title={`${t.label} (${prettyCombo(p.keys[t.action] ?? "")})`}
-          onClick={() => p.setTool(t.tool)}
-          className="gap-1 px-2"
-        >
-          <t.icon className="size-4" />
-          <Hotkey combo={p.keys[t.action]} />
-        </Button>
-      ))}
+      {TOOL_BUTTONS.map((t) => {
+        const combo = t.action ? p.keys[t.action] : undefined;
+        return (
+          <Button
+            key={t.tool}
+            size="sm"
+            variant={p.tool === t.tool ? "secondary" : "ghost"}
+            aria-label={t.label}
+            aria-pressed={p.tool === t.tool}
+            title={combo ? `${t.label} (${prettyCombo(combo)})` : t.label}
+            onClick={() => p.setTool(t.tool)}
+            className="gap-1 px-2"
+          >
+            <t.icon className="size-4" />
+            <Hotkey combo={combo} />
+          </Button>
+        );
+      })}
+
+      {(p.tool === "eraser" || p.tool === "lassoEraser") && (
+        <div className="flex items-center gap-0.5" role="group" aria-label="Eraser mode">
+          {(Object.keys(ERASER_MODE_LABELS) as Prefs["eraserMode"][]).map((m) => (
+            <Button
+              key={m}
+              size="sm"
+              variant={p.prefs.eraserMode === m ? "secondary" : "ghost"}
+              aria-pressed={p.prefs.eraserMode === m}
+              className="px-2 text-[11px]"
+              onClick={() => {
+                p.setPrefs({ eraserMode: m });
+                p.setTool(m === "lasso" ? "lassoEraser" : "eraser");
+              }}
+            >
+              {ERASER_MODE_LABELS[m]}
+            </Button>
+          ))}
+        </div>
+      )}
+
 
       <span className="mx-1 h-6 w-px bg-border" />
 
