@@ -1,5 +1,11 @@
 import type { ContentRect } from "./geometry";
 import { strokeToPath2D } from "./ink";
+import { isSafeColor } from "./prefs";
+import {
+  polylineIntersectsBox,
+  polylineIntersectsCircle,
+  polylineIntersectsPolygon,
+} from "./hit-geometry";
 import type {
   CapStyle,
   PageObject,
@@ -476,17 +482,66 @@ export function outlinePoints(o: PageObject): Pt[] {
 }
 
 export function hitTest(o: PageObject, x: number, y: number, tol: number): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(tol)) return false;
   const b = objectBounds(o);
+  if (!Number.isFinite(b.x0)) return false;
   if (x < b.x0 - tol || x > b.x1 + tol || y < b.y0 - tol || y > b.y1 + tol) return false;
   if (o.kind === "text") return true;
-  const pts = outlinePoints(o);
-  const r = tol + (o.kind === "stroke" ? o.size * 0.8 : o.size * 0.8);
+  const pts = outlinePoints(o).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  if (!pts.length) return false;
+  // Hit tolerance scales with the object's own rendered width, not a fixed
+  // constant, so thick strokes/shapes feel correct to touch.
+  const own = o.kind === "stroke" || o.kind === "shape" ? Math.max(0, o.size) : 0;
+  const r = tol + own * 0.8;
   if (pts.length === 1) return Math.hypot(pts[0]!.x - x, pts[0]!.y - y) <= r;
   for (let i = 1; i < pts.length; i++) {
     if (distToSegment({ x, y }, pts[i - 1]!, pts[i]!) <= r) return true;
   }
   if (o.kind === "shape" && o.fill) return true;
   return false;
+}
+
+/** True if a circle (used by the circle eraser) touches the object's real geometry. */
+export function objectIntersectsCircle(o: PageObject, c: Pt, r: number): boolean {
+  if (!Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(r)) return false;
+  if (o.kind === "text") {
+    const b = objectBounds(o);
+    return polylineIntersectsBox(
+      [
+        { x: b.x0, y: b.y0 },
+        { x: b.x1, y: b.y0 },
+        { x: b.x1, y: b.y1 },
+        { x: b.x0, y: b.y1 },
+      ],
+      { x0: c.x - r, y0: c.y - r, x1: c.x + r, y1: c.y + r },
+      true,
+    );
+  }
+  const pts = outlinePoints(o);
+  const own = o.kind === "stroke" || o.kind === "shape" ? Math.max(0, o.size) * 0.8 : 0;
+  const closed = o.kind === "shape" ? shapeGeometry(o.shape, o.a, o.b).some((s) => s.closed) : false;
+  return polylineIntersectsCircle(pts, c, r + own, closed);
+}
+
+/** True if an axis-aligned box (rect eraser / marquee) touches real geometry. */
+export function objectIntersectsBox(o: PageObject, box: Box): boolean {
+  if (o.kind === "text") {
+    const b = objectBounds(o);
+    return !(b.x1 < box.x0 || b.x0 > box.x1 || b.y1 < box.y0 || b.y0 > box.y1);
+  }
+  const pts = outlinePoints(o);
+  const own = o.kind === "stroke" || o.kind === "shape" ? Math.max(0, o.size) * 0.8 : 0;
+  const grown = { x0: box.x0 - own, y0: box.y0 - own, x1: box.x1 + own, y1: box.y1 + own };
+  const closed = o.kind === "shape" ? shapeGeometry(o.shape, o.a, o.b).some((s) => s.closed) : false;
+  return polylineIntersectsBox(pts, grown, closed);
+}
+
+/** True if a closed lasso polygon touches real geometry (inside or crossing). */
+export function objectIntersectsPolygon(o: PageObject, poly: Pt[]): boolean {
+  if (poly.length < 3) return false;
+  const pts = outlinePoints(o);
+  const closed = o.kind === "shape" ? shapeGeometry(o.shape, o.a, o.b).some((s) => s.closed) : false;
+  return polylineIntersectsPolygon(pts, poly, closed);
 }
 
 export function pointInPolygon(p: Pt, poly: Pt[]): boolean {
@@ -506,11 +561,7 @@ export function pointInPolygon(p: Pt, poly: Pt[]): boolean {
 
 export function objectsInPolygon(objs: PageObject[], poly: Pt[]): PageObject[] {
   if (poly.length < 3) return [];
-  return objs.filter((o) => {
-    const pts = outlinePoints(o);
-    const hits = pts.filter((p) => pointInPolygon(p, poly)).length;
-    return hits > 0 && hits >= Math.min(pts.length, Math.ceil(pts.length * 0.5));
-  });
+  return objs.filter((o) => objectIntersectsPolygon(o, poly));
 }
 
 export function objectsInBox(objs: PageObject[], box: Box): PageObject[] {
@@ -521,10 +572,12 @@ export function objectsInBox(objs: PageObject[], box: Box): PageObject[] {
 }
 
 export function objectsIntersectingBox(objs: PageObject[], box: Box): PageObject[] {
-  return objs.filter((o) => {
-    const b = objectBounds(o);
-    return !(b.x1 < box.x0 || b.x0 > box.x1 || b.y1 < box.y0 || b.y0 > box.y1);
-  });
+  if (!Number.isFinite(box.x0) || !Number.isFinite(box.x1)) return [];
+  return objs.filter((o) => objectIntersectsBox(o, box));
+}
+
+export function objectsInCircle(objs: PageObject[], c: Pt, r: number): PageObject[] {
+  return objs.filter((o) => objectIntersectsCircle(o, c, r));
 }
 
 /* ------------------------------------------------------------------ */

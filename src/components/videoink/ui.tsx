@@ -19,6 +19,7 @@ import {
   RotateCcw,
   RotateCw,
   Save,
+  Scissors,
   Square,
   Trash2,
   Type,
