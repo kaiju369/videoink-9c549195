@@ -131,9 +131,43 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
         else videoRef.current?.pause();
       },
       seek: (t) => {
-        if (ytRef.current) ytRef.current.seekTo(t, true);
-        else if (videoRef.current) videoRef.current.currentTime = t;
+        const safe = Number.isFinite(t) ? Math.max(0, t) : 0;
+        if (ytRef.current) ytRef.current.seekTo(safe, true);
+        else if (videoRef.current) videoRef.current.currentTime = safe;
       },
+      stepFrame: (dir, fps = 30) => {
+        const step = 1 / Math.max(1, fps);
+        if (ytRef.current) {
+          ytRef.current.pauseVideo();
+          ytRef.current.seekTo(Math.max(0, ytRef.current.getCurrentTime() + dir * step), true);
+        } else if (videoRef.current) {
+          videoRef.current.pause();
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime + dir * step);
+        }
+      },
+      waitForFrame: () =>
+        new Promise<void>((resolve) => {
+          const v = videoRef.current;
+          type WithRVFC = HTMLVideoElement & {
+            requestVideoFrameCallback?: (cb: () => void) => number;
+          };
+          const rvfc = (v as WithRVFC | null)?.requestVideoFrameCallback;
+          if (v && typeof rvfc === "function") {
+            let settled = false;
+            const done = () => {
+              if (!settled) {
+                settled = true;
+                resolve();
+              }
+            };
+            rvfc.call(v, done);
+            // Paused videos never fire rVFC — always resolve on the next frames.
+            requestAnimationFrame(() => requestAnimationFrame(done));
+          } else {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }
+        }),
+
       getCurrentTime: () =>
         ytRef.current?.getCurrentTime() ?? videoRef.current?.currentTime ?? 0,
       getDuration: () =>
