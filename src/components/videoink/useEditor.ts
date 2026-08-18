@@ -1,8 +1,75 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useReducer, useRef } from "react";
 import { nextZ, translateObject } from "@/lib/videoink/objects";
 import { uid, type PageObject } from "@/lib/videoink/types";
 
-const LIMIT = 120;
+const LIMIT = 100;
+
+interface State {
+  objects: PageObject[];
+  past: PageObject[][];
+  future: PageObject[][];
+  selection: string[];
+  dirty: boolean;
+}
+
+type Action =
+  | { type: "set"; value: PageObject[] }
+  | { type: "commit"; prevSnapshot: PageObject[]; value: PageObject[] }
+  | { type: "abort"; snapshot: PageObject[] }
+  | { type: "undo" }
+  | { type: "redo" }
+  | { type: "reset"; value: PageObject[] }
+  | { type: "selection"; value: string[] }
+  | { type: "markSaved" };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case "set":
+      return { ...state, objects: action.value, dirty: true };
+    case "commit": {
+      if (action.prevSnapshot === action.value) return { ...state, objects: action.value };
+      return {
+        ...state,
+        objects: action.value,
+        past: [...state.past, action.prevSnapshot].slice(-LIMIT),
+        future: [],
+        dirty: true,
+      };
+    }
+    case "abort":
+      return { ...state, objects: action.snapshot };
+    case "undo": {
+      const prev = state.past[state.past.length - 1];
+      if (!prev) return state;
+      return {
+        ...state,
+        objects: prev,
+        past: state.past.slice(0, -1),
+        future: [...state.future, state.objects],
+        dirty: true,
+      };
+    }
+    case "redo": {
+      const next = state.future[state.future.length - 1];
+      if (!next) return state;
+      return {
+        ...state,
+        objects: next,
+        past: [...state.past, state.objects],
+        future: state.future.slice(0, -1),
+        dirty: true,
+      };
+    }
+    case "reset":
+      return { objects: action.value, past: [], future: [], selection: [], dirty: false };
+    case "selection":
+      return { ...state, selection: action.value };
+    case "markSaved":
+      return { ...state, dirty: false };
+    default:
+      return state;
+  }
+}
 
 export interface Editor {
   objects: PageObject[];
@@ -30,41 +97,65 @@ export interface Editor {
   clear: () => void;
   reset: (objects: PageObject[]) => void;
   markSaved: () => void;
+  /**
+   * Explicit transaction API: a whole interactive drag (draw/move/resize/
+   * freehand-erase) should call `begin()` once, then any number of
+   * `apply(next, false)` calls, then exactly one `commit()` (or `abort()` to
+   * roll back to the pre-drag snapshot). This guarantees the whole drag
+   * produces a single undo entry.
+   */
+  begin: () => void;
+  commit: (label?: string) => void;
+  abort: () => void;
 }
 
 export function useEditor(initial: PageObject[] = []): Editor {
-  const [objects, setObjects] = useState<PageObject[]>(initial);
-  const [past, setPast] = useState<PageObject[][]>([]);
-  const [future, setFuture] = useState<PageObject[][]>([]);
-  const [selection, setSelection] = useState<string[]>([]);
-  const [dirty, setDirty] = useState(false);
+  const [state, dispatch] = useReducer(reducer, {
+    objects: initial,
+    past: [],
+    future: [],
+    selection: [],
+    dirty: false,
+  });
+  const objectsRef = useRef(state.objects);
+  objectsRef.current = state.objects;
   const clipboard = useRef<PageObject[]>([]);
-  const pending = useRef<PageObject[] | null>(null);
+  /** snapshot captured by begin(); non-null while a transaction is open */
+  const txRef = useRef<PageObject[] | null>(null);
 
-  const push = useCallback((prev: PageObject[]) => {
-    setPast((p) => [...p, prev].slice(-LIMIT));
-    setFuture([]);
+  const begin = useCallback(() => {
+    txRef.current = objectsRef.current;
   }, []);
 
-  const apply = useCallback<Editor["apply"]>(
-    (next, commit = true) => {
-      setObjects((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        if (commit) push(pending.current ?? prev);
-        pending.current = null;
-        return value;
-      });
-      setDirty(true);
-    },
-    [push],
-  );
-
-  const beginTransient = useCallback(() => {
-    setObjects((prev) => {
-      pending.current = prev;
-      return prev;
-    });
+  const commit = useCallback((_label?: string) => {
+    if (txRef.current === null) return;
+    const prevSnapshot = txRef.current;
+    txRef.current = null;
+    dispatch({ type: "commit", prevSnapshot, value: objectsRef.current });
   }, []);
+
+  const abort = useCallback(() => {
+    if (txRef.current === null) return;
+    const snapshot = txRef.current;
+    txRef.current = null;
+    objectsRef.current = snapshot;
+    dispatch({ type: "abort", snapshot });
+  }, []);
+
+  const apply = useCallback<Editor["apply"]>((next, commitNow = true) => {
+    const prevObjects = objectsRef.current;
+    const value = typeof next === "function" ? next(prevObjects) : next;
+    objectsRef.current = value;
+    if (commitNow) {
+      const prevSnapshot = txRef.current ?? prevObjects;
+      txRef.current = null;
+      dispatch({ type: "commit", prevSnapshot, value });
+    } else {
+      dispatch({ type: "set", value });
+    }
+  }, []);
+
+  const setSelection = useCallback((ids: string[]) => dispatch({ type: "selection", value: ids }), []);
 
   const add = useCallback<Editor["add"]>(
     (o) => {
@@ -80,18 +171,18 @@ export function useEditor(initial: PageObject[] = []): Editor {
   const remove = useCallback<Editor["remove"]>(
     (ids) => {
       apply((prev) => prev.filter((o) => !ids.includes(o.id)));
-      setSelection((s) => s.filter((id) => !ids.includes(id)));
+      setSelection(state.selection.filter((id) => !ids.includes(id)));
     },
-    [apply],
+    [apply, setSelection, state.selection],
   );
 
   const deleteSelection = useCallback(() => {
-    if (selection.length) remove(selection);
-  }, [remove, selection]);
+    if (state.selection.length) remove(state.selection);
+  }, [remove, state.selection]);
 
   const copySelection = useCallback(() => {
-    clipboard.current = objects.filter((o) => selection.includes(o.id));
-  }, [objects, selection]);
+    clipboard.current = state.objects.filter((o) => state.selection.includes(o.id));
+  }, [state.objects, state.selection]);
 
   const pasteList = useCallback(
     (list: PageObject[]) => {
@@ -105,23 +196,26 @@ export function useEditor(initial: PageObject[] = []): Editor {
       add(clones);
       setSelection(clones.map((c) => c.id));
     },
-    [add],
+    [add, setSelection],
   );
 
   const paste = useCallback(() => pasteList(clipboard.current), [pasteList]);
 
   const duplicateSelection = useCallback(
-    () => pasteList(objects.filter((o) => selection.includes(o.id))),
-    [objects, pasteList, selection],
+    () => pasteList(state.objects.filter((o) => state.selection.includes(o.id))),
+    [state.objects, pasteList, state.selection],
   );
 
-  const selectAll = useCallback(() => setSelection(objects.map((o) => o.id)), [objects]);
+  const selectAll = useCallback(
+    () => setSelection(state.objects.map((o) => o.id)),
+    [setSelection, state.objects],
+  );
 
   const updateSelected = useCallback<Editor["updateSelected"]>(
     (patch) => {
-      apply((prev) => prev.map((o) => (selection.includes(o.id) ? patch(o) : o)));
+      apply((prev) => prev.map((o) => (state.selection.includes(o.id) ? patch(o) : o)));
     },
-    [apply, selection],
+    [apply, state.selection],
   );
 
   const order = useCallback<Editor["order"]>(
@@ -131,71 +225,45 @@ export function useEditor(initial: PageObject[] = []): Editor {
         const max = sorted.length ? sorted[sorted.length - 1]!.z : 0;
         const min = sorted.length ? sorted[0]!.z : 0;
         return prev.map((o) => {
-          if (!selection.includes(o.id)) return o;
+          if (!state.selection.includes(o.id)) return o;
           if (mode === "front") return { ...o, z: max + 1 };
           if (mode === "back") return { ...o, z: min - 1 };
           return { ...o, z: o.z + (mode === "forward" ? 1.5 : -1.5) };
         });
       });
     },
-    [apply, selection],
+    [apply, state.selection],
   );
 
-  const undo = useCallback(() => {
-    setPast((p) => {
-      const prev = p[p.length - 1];
-      if (!prev) return p;
-      setObjects((cur) => {
-        setFuture((f) => [...f, cur]);
-        return prev;
-      });
-      setDirty(true);
-      return p.slice(0, -1);
-    });
-  }, []);
-
-  const redo = useCallback(() => {
-    setFuture((f) => {
-      const next = f[f.length - 1];
-      if (!next) return f;
-      setObjects((cur) => {
-        setPast((p) => [...p, cur]);
-        return next;
-      });
-      setDirty(true);
-      return f.slice(0, -1);
-    });
-  }, []);
+  const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const redo = useCallback(() => dispatch({ type: "redo" }), []);
 
   const clear = useCallback(() => {
     apply(() => []);
     setSelection([]);
-  }, [apply]);
+  }, [apply, setSelection]);
 
   const reset = useCallback((next: PageObject[]) => {
-    setObjects(next);
-    setPast([]);
-    setFuture([]);
-    setSelection([]);
-    setDirty(false);
-    pending.current = null;
+    txRef.current = null;
+    objectsRef.current = next;
+    dispatch({ type: "reset", value: next });
   }, []);
 
   const selected = useMemo(
-    () => objects.filter((o) => selection.includes(o.id)),
-    [objects, selection],
+    () => state.objects.filter((o) => state.selection.includes(o.id)),
+    [state.objects, state.selection],
   );
 
   return {
-    objects,
-    selection,
+    objects: state.objects,
+    selection: state.selection,
     selected,
-    canUndo: past.length > 0,
-    canRedo: future.length > 0,
-    dirty,
+    canUndo: state.past.length > 0,
+    canRedo: state.future.length > 0,
+    dirty: state.dirty,
     setSelection,
     apply,
-    beginTransient,
+    beginTransient: begin,
     add,
     remove,
     deleteSelection,
@@ -209,6 +277,9 @@ export function useEditor(initial: PageObject[] = []): Editor {
     redo,
     clear,
     reset,
-    markSaved: () => setDirty(false),
+    markSaved: () => dispatch({ type: "markSaved" }),
+    begin,
+    commit,
+    abort,
   };
 }

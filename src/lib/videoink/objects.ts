@@ -689,3 +689,147 @@ export function erasePartial(
 export function nextZ(objs: PageObject[]): number {
   return objs.reduce((m, o) => Math.max(m, o.z), 0) + 1;
 }
+
+/* ------------------------------------------------------------------ */
+/* defensive sanitation for data loaded from storage / import          */
+/* ------------------------------------------------------------------ */
+
+const isFiniteNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+function sanitizePt(p: unknown): Pt | null {
+  if (!p || typeof p !== "object") return null;
+  const x = (p as any).x;
+  const y = (p as any).y;
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  return { x, y };
+}
+
+function sanitizeStroke(o: any): Stroke | null {
+  if (!Array.isArray(o.points)) return null;
+  const points: InkPointLike[] = [];
+  for (const raw of o.points) {
+    const p = sanitizePt(raw);
+    if (!p) continue;
+    const pressure = isFiniteNum(raw?.pressure) ? clamp(raw.pressure, 0, 1) : 0.5;
+    points.push({ x: p.x, y: p.y, pressure });
+  }
+  if (points.length < 1) return null;
+  if (typeof o.id !== "string" || !o.id) return null;
+  if (o.tool !== "pen" && o.tool !== "highlighter") return null;
+  const color = isSafeColor(o.color) ? o.color : "#f5f1e8";
+  return {
+    kind: "stroke",
+    id: o.id,
+    z: isFiniteNum(o.z) ? o.z : 0,
+    createdAt: isFiniteNum(o.createdAt) ? o.createdAt : Date.now(),
+    tool: o.tool,
+    color,
+    opacity: isFiniteNum(o.opacity) ? clamp(o.opacity, 0, 1) : 1,
+    size: isFiniteNum(o.size) ? clamp(o.size, 0.0001, 1) : 0.006,
+    pressureMode: o.pressureMode === "real" ? "real" : "simulated",
+    thinning: isFiniteNum(o.thinning) ? clamp(o.thinning, 0, 1) : undefined,
+    smoothing: isFiniteNum(o.smoothing) ? clamp(o.smoothing, 0, 2) : undefined,
+    profile: typeof o.profile === "string" ? o.profile : undefined,
+    points,
+  };
+}
+
+const SHAPE_KINDS = new Set<ShapeKind>([
+  "line", "arrow", "doubleArrow", "rect", "roundRect", "square", "circle",
+  "ellipse", "triangle", "rightTriangle", "diamond", "star", "polygon",
+  "arc", "bracket", "curlyBracket", "callout",
+]);
+
+function sanitizeShape(o: any): ShapeObject | null {
+  if (typeof o.id !== "string" || !o.id) return null;
+  if (!SHAPE_KINDS.has(o.shape)) return null;
+  const a = sanitizePt(o.a);
+  const b = sanitizePt(o.b);
+  if (!a || !b) return null;
+  const color = isSafeColor(o.color) ? o.color : "#f5f1e8";
+  const fill = isSafeColor(o.fill) ? o.fill : undefined;
+  const lineStyle = o.lineStyle === "dashed" || o.lineStyle === "dotted" ? o.lineStyle : "solid";
+  const caps = new Set(["none", "arrow", "filledArrow"]);
+  const startCap = caps.has(o.startCap) ? o.startCap : "none";
+  const endCap = caps.has(o.endCap) ? o.endCap : "none";
+  return {
+    kind: "shape",
+    id: o.id,
+    z: isFiniteNum(o.z) ? o.z : 0,
+    createdAt: isFiniteNum(o.createdAt) ? o.createdAt : Date.now(),
+    shape: o.shape,
+    a,
+    b,
+    color,
+    fill,
+    opacity: isFiniteNum(o.opacity) ? clamp(o.opacity, 0, 1) : 1,
+    size: isFiniteNum(o.size) ? clamp(o.size, 0.0001, 1) : 0.005,
+    lineStyle,
+    startCap,
+    endCap,
+    sides: isFiniteNum(o.sides) ? Math.round(clamp(o.sides, 3, 24)) : undefined,
+  };
+}
+
+function sanitizeText(o: any): TextObject | null {
+  if (typeof o.id !== "string" || !o.id) return null;
+  if (typeof o.text !== "string") return null;
+  if (!isFiniteNum(o.x) || !isFiniteNum(o.y) || !isFiniteNum(o.w) || !isFiniteNum(o.h)) return null;
+  const align = o.align === "center" || o.align === "right" ? o.align : "left";
+  return {
+    kind: "text",
+    id: o.id,
+    z: isFiniteNum(o.z) ? o.z : 0,
+    createdAt: isFiniteNum(o.createdAt) ? o.createdAt : Date.now(),
+    x: o.x,
+    y: o.y,
+    w: clamp(o.w, 0.001, 4),
+    h: clamp(o.h, 0.001, 4),
+    text: o.text.slice(0, 20000),
+    fontSize: isFiniteNum(o.fontSize) ? clamp(o.fontSize, 0.005, 1) : 0.05,
+    fontFamily: typeof o.fontFamily === "string" && o.fontFamily ? o.fontFamily : "Inter, system-ui, sans-serif",
+    bold: !!o.bold,
+    italic: !!o.italic,
+    underline: !!o.underline,
+    align,
+    color: isSafeColor(o.color) ? o.color : "#f5f1e8",
+    background: isSafeColor(o.background) ? o.background : "transparent",
+    border: isSafeColor(o.border) ? o.border : "transparent",
+    opacity: isFiniteNum(o.opacity) ? clamp(o.opacity, 0, 1) : 1,
+  };
+}
+
+interface InkPointLike {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
+/**
+ * Defensively validate a value that came from IndexedDB / an imported file
+ * before it is trusted as `PageObject[]`. Never throws: anything malformed is
+ * silently dropped rather than crashing the editor.
+ */
+export function sanitizeObjects(input: unknown): PageObject[] {
+  try {
+    if (!Array.isArray(input)) return [];
+    const out: PageObject[] = [];
+    for (const raw of input) {
+      if (!raw || typeof raw !== "object") continue;
+      try {
+        const kind = (raw as any).kind;
+        let obj: PageObject | null = null;
+        if (kind === "stroke") obj = sanitizeStroke(raw);
+        else if (kind === "shape") obj = sanitizeShape(raw);
+        else if (kind === "text") obj = sanitizeText(raw);
+        if (obj) out.push(obj);
+      } catch {
+        // skip malformed entry
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
