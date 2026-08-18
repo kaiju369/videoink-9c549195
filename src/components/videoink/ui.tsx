@@ -344,9 +344,20 @@ export function ToolIndicator({
   const size = tool === "highlighter" ? prefs.highlighterSize : prefs.penSize;
   const preset = PEN_PRESETS.find((p) => Math.abs(p.size - size) < 1e-6)?.label ?? "Custom";
   const combo = keys[(`tool.${tool}` as ActionId)] ?? "";
+  const detail =
+    tool === "pen"
+      ? PEN_PROFILE_LIST.find((p) => p.id === prefs.penProfile)?.label
+      : tool === "eraser" || tool === "lassoEraser"
+        ? `${ERASER_MODE_LABELS[prefs.eraserMode]} eraser`
+        : undefined;
   return (
-    <div className="pointer-events-none rounded-md bg-background/85 px-2.5 py-1 text-[11px] leading-tight text-muted-foreground">
+    <div
+      className="pointer-events-none rounded-md bg-background/85 px-2.5 py-1 text-[11px] leading-tight text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
       <span className="font-medium text-foreground">{flash ?? tool}</span>
+      {detail ? ` · ${detail}` : ""}
       {" · "}
       {preset}
       {" · "}
@@ -360,6 +371,7 @@ export function ToolIndicator({
     </div>
   );
 }
+
 
 /* ---------------------------- text overlay ---------------------------- */
 
