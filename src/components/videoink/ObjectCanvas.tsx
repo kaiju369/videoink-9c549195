@@ -673,7 +673,7 @@ export function ObjectCanvas({
     let diameter: number;
     let color: string;
     let filled = false;
-    if (ERASERS.includes(tool)) {
+    if (ERASER_TOOLS.includes(tool)) {
       diameter = prefs.eraserSize * h * 2;
       color = "#f5f1e8";
     } else if (tool === "highlighter") {
