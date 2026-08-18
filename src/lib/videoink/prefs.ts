@@ -341,17 +341,70 @@ export const DEFAULT_PREFS: Prefs = {
 
 const KEY = "videoink.prefs.v1";
 
+const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+/** Accept only safe CSS colour literals coming from storage or imported data. */
+export function isSafeColor(value: unknown): value is string {
+  return typeof value === "string" && (HEX_RE.test(value) || value === "transparent");
+}
+
+const clamp01 = (v: unknown, fallback: number) =>
+  typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : fallback;
+
 export function loadPrefs(): Prefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return DEFAULT_PREFS;
-    const parsed = JSON.parse(raw) as Partial<Prefs>;
-    return { ...DEFAULT_PREFS, ...parsed, text: { ...DEFAULT_PREFS.text, ...parsed.text } };
+    const parsed = JSON.parse(raw) as Partial<Prefs> | null;
+    if (!parsed || typeof parsed !== "object") return DEFAULT_PREFS;
+    const merged: Prefs = {
+      ...DEFAULT_PREFS,
+      ...parsed,
+      text: { ...DEFAULT_PREFS.text, ...parsed.text },
+      exportMeta: { ...DEFAULT_PREFS.exportMeta, ...parsed.exportMeta },
+      dock: { ...DEFAULT_PREFS.dock, ...parsed.dock },
+    };
+    // Sanitise anything that is fed straight into canvas / CSS.
+    if (!isSafeColor(merged.penColor)) merged.penColor = DEFAULT_PREFS.penColor;
+    if (!isSafeColor(merged.highlighterColor))
+      merged.highlighterColor = DEFAULT_PREFS.highlighterColor;
+    if (!isSafeColor(merged.text.color)) merged.text.color = DEFAULT_PREFS.text.color;
+    if (!isSafeColor(merged.text.background))
+      merged.text.background = DEFAULT_PREFS.text.background;
+    if (!isSafeColor(merged.text.border)) merged.text.border = DEFAULT_PREFS.text.border;
+    if (!isSafeColor(merged.dock.color)) merged.dock.color = DEFAULT_PREFS.dock.color;
+    merged.recentColors = (Array.isArray(merged.recentColors) ? merged.recentColors : [])
+      .filter(isSafeColor)
+      .slice(0, 12);
+    merged.favoriteColors = (Array.isArray(merged.favoriteColors) ? merged.favoriteColors : [])
+      .filter(isSafeColor)
+      .slice(0, 12);
+    if (!PEN_PROFILES[merged.penProfile]) merged.penProfile = DEFAULT_PREFS.penProfile;
+    merged.dock.x = clamp01(merged.dock.x, DEFAULT_PREFS.dock.x);
+    merged.dock.y = clamp01(merged.dock.y, DEFAULT_PREFS.dock.y);
+    merged.smoothing = clamp01(merged.smoothing, DEFAULT_PREFS.smoothing);
+    merged.jpegQuality = Math.min(
+      1,
+      Math.max(0.3, clamp01(merged.jpegQuality, DEFAULT_PREFS.jpegQuality)),
+    );
+    merged.exportCustomWidth = Math.min(
+      7680,
+      Math.max(240, Math.round(Number(merged.exportCustomWidth) || DEFAULT_PREFS.exportCustomWidth)),
+    );
+    merged.eraserSize = Math.min(0.25, Math.max(0.004, Number(merged.eraserSize) || 0.02));
+    return merged;
   } catch {
     return DEFAULT_PREFS;
   }
 }
+
+/** Push a colour to the front of the recent list (deduped, capped). */
+export function pushRecentColor(list: string[], color: string): string[] {
+  if (!isSafeColor(color)) return list;
+  return [color, ...list.filter((c) => c.toLowerCase() !== color.toLowerCase())].slice(0, 10);
+}
+
 
 export function savePrefs(p: Prefs) {
   try {
