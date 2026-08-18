@@ -6,6 +6,7 @@ export type SourceType = "youtube" | "file" | "url";
 export type ToolId =
   | "select"
   | "lasso"
+  | "lassoEraser"
   | "move"
   | "pen"
   | "highlighter"
