@@ -30,8 +30,31 @@ export interface PlayerHandle {
   requestPictureInPicture: () => void;
   /** resolves once the currently displayed frame is painted (best effort) */
   waitForFrame: () => Promise<void>;
+  /** available resolution ids, best first ("auto" always included) */
+  getQualities: () => string[];
+  getQuality: () => string;
+  setQuality: (q: string) => void;
+  /** intrinsic pixel size of the decoded frame, when the runtime exposes it */
+  getVideoSize: () => { width: number; height: number } | null;
 }
 
+/** YouTube quality ids mapped to human labels; also used for HTML5 heights. */
+export const QUALITY_LABELS: Record<string, string> = {
+  auto: "Auto",
+  tiny: "144p",
+  small: "240p",
+  medium: "360p",
+  large: "480p",
+  hd720: "720p",
+  hd1080: "1080p",
+  hd1440: "1440p",
+  hd2160: "2160p",
+  highres: "Max",
+};
+
+export function qualityLabel(q: string): string {
+  return QUALITY_LABELS[q] ?? q;
+}
 
 interface YTPlayer {
   playVideo: () => void;
@@ -46,8 +69,13 @@ interface YTPlayer {
   mute: () => void;
   unMute: () => void;
   getVideoData?: () => { title?: string };
+  getAvailableQualityLevels?: () => string[];
+  getPlaybackQuality?: () => string;
+  setPlaybackQuality?: (q: string) => void;
+  setPlaybackQualityRange?: (min: string, max: string) => void;
   destroy: () => void;
 }
+
 
 interface Props {
   source: PlayerSource | null;
