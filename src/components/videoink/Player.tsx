@@ -94,6 +94,8 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
 ) {
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytRef = useRef<YTPlayer | null>(null);
+  const qualityRef = useRef<string>("auto");
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const [aspect, setAspect] = useState(16 / 9);
   const readyCb = useRef(onReady);
