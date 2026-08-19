@@ -237,6 +237,45 @@ function Workstation() {
     return () => clearInterval(t);
   }, [source]);
 
+  /* ------------------ available resolutions (poll) ------------------- */
+  useEffect(() => {
+    if (!source) {
+      setQualities([]);
+      setQuality("auto");
+      return;
+    }
+    let stop = false;
+    const read = () => {
+      const p = playerRef.current;
+      if (!p || stop) return;
+      const ids = p.getQualities();
+      const size = p.getVideoSize();
+      const list = ids.map((id) => ({
+        id,
+        label:
+          id === "auto" && size
+            ? `${size.height}p (source)`
+            : id === "auto"
+              ? "Auto"
+              : qualityLabel(id),
+      }));
+      setQualities((prev) =>
+        prev.length === list.length && prev.every((q, i) => q.id === list[i]!.id && q.label === list[i]!.label)
+          ? prev
+          : list,
+      );
+      setQuality(p.getQuality());
+    };
+    read();
+    const t = setInterval(read, 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [source]);
+
+
+
   /* ------------------------- screen capture -------------------------- */
   const toggleCapture = useCallback(async () => {
     if (!ScreenCaptureSession.supported) {
