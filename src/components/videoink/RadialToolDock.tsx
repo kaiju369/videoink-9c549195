@@ -64,9 +64,10 @@ const PETALS: Petal[] = [
   { action: "redo", icon: Redo2, label: "Redo" },
 ];
 
-const RADIUS_DESKTOP = 96;
-const RADIUS_COMPACT = 74;
+const RADIUS_DESKTOP = 112;
+const RADIUS_COMPACT = 88;
 const BUTTON = 56;
+
 
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(false);
@@ -113,21 +114,42 @@ export function RadialToolDock(p: RadialToolDockProps) {
   const openLeft = px > viewport.w / 2;
   const openUp = py > viewport.h / 2;
 
-  const petals = useMemo(() => {
+  /**
+   * Petals are laid out on one or more concentric rings inside a fan that
+   * always points away from the nearest screen corner. Ring capacity is
+   * derived from arc length, so items can never overlap regardless of how
+   * many tools the fan holds or how small the screen is.
+   */
+  const { petals } = useMemo(() => {
     const n = PETALS.length;
-    // quarter/half arc chosen so items stay on screen
-    const start = openLeft ? (openUp ? 180 : 90) : openUp ? 270 : 0;
-    const sweep = 90;
-    return PETALS.map((petal, i) => {
-      const t = n === 1 ? 0 : i / (n - 1);
-      const ang = ((start + sweep * t) * Math.PI) / 180;
-      return {
-        ...petal,
-        dx: Math.cos(ang) * radius * (openLeft ? -1 : 1),
-        dy: Math.sin(ang) * radius * (openUp ? -1 : 1),
-      };
-    });
+    const ITEM = 44;
+    const GAP = 12;
+    const sweep = 150;
+    // screen coords (y grows down): fan into the free diagonal
+    const baseDeg = openLeft ? (openUp ? 225 : 135) : openUp ? 315 : 45;
+
+    const out: (Petal & { dx: number; dy: number })[] = new Array(n);
+    let idx = 0;
+    let ring = 0;
+    let outer = radius;
+    while (idx < n) {
+      const r = radius + ring * (ITEM + GAP);
+      outer = r;
+      const arc = ((sweep * Math.PI) / 180) * r;
+      const cap = Math.max(3, Math.floor(arc / (ITEM + GAP)) + 1);
+      const items: number[] = [];
+      for (let k = 0; k < cap && idx < n; k++) items.push(idx++);
+      const m = items.length;
+      items.forEach((gi, i) => {
+        const t = m === 1 ? 0.5 : i / (m - 1);
+        const ang = ((baseDeg - sweep / 2 + sweep * t) * Math.PI) / 180;
+        out[gi] = { ...PETALS[gi]!, dx: Math.cos(ang) * r, dy: Math.sin(ang) * r };
+      });
+      ring++;
+    }
+    return { petals: out, maxRadius: outer };
   }, [openLeft, openUp, radius]);
+
 
   const persist = useCallback(
     (next: Partial<Prefs["dock"]>) => p.setPrefs({ dock: { ...p.prefs.dock, ...next } }),
@@ -279,13 +301,19 @@ export function RadialToolDock(p: RadialToolDockProps) {
         {/* quick panels */}
         {open && (
           <div
-            className="pointer-events-auto absolute w-[232px] rounded-xl border border-border/70 bg-card/97 p-3 shadow-xl backdrop-blur"
+            className="pointer-events-auto absolute max-h-[60vh] w-[232px] overflow-y-auto rounded-xl border border-border/70 bg-card/97 p-3 shadow-xl backdrop-blur"
             style={{
-              transform: `translate(${openLeft ? "calc(-100% - 34px)" : "34px"}, ${
-                openUp ? "calc(-100% + 24px)" : "-24px"
-              })`,
+              // The fan occupies the diagonal away from the nearest corner, so
+              // the panel sits on the opposite vertical side and is clamped
+              // horizontally to stay fully on screen.
+              transform: `translate(${
+                Math.min(Math.max(8, px - 116), Math.max(8, viewport.w - 240)) - px
+              }px, ${openUp ? BUTTON / 2 + 14 : -(BUTTON / 2 + 14)}px) ${
+                openUp ? "" : "translateY(-100%)"
+              }`,
             }}
           >
+
             <div className="mb-2 flex items-center gap-1">
               {(["color", "size", "profile"] as const).map((k) => (
                 <button

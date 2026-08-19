@@ -30,8 +30,31 @@ export interface PlayerHandle {
   requestPictureInPicture: () => void;
   /** resolves once the currently displayed frame is painted (best effort) */
   waitForFrame: () => Promise<void>;
+  /** available resolution ids, best first ("auto" always included) */
+  getQualities: () => string[];
+  getQuality: () => string;
+  setQuality: (q: string) => void;
+  /** intrinsic pixel size of the decoded frame, when the runtime exposes it */
+  getVideoSize: () => { width: number; height: number } | null;
 }
 
+/** YouTube quality ids mapped to human labels; also used for HTML5 heights. */
+export const QUALITY_LABELS: Record<string, string> = {
+  auto: "Auto",
+  tiny: "144p",
+  small: "240p",
+  medium: "360p",
+  large: "480p",
+  hd720: "720p",
+  hd1080: "1080p",
+  hd1440: "1440p",
+  hd2160: "2160p",
+  highres: "Max",
+};
+
+export function qualityLabel(q: string): string {
+  return QUALITY_LABELS[q] ?? q;
+}
 
 interface YTPlayer {
   playVideo: () => void;
@@ -46,8 +69,13 @@ interface YTPlayer {
   mute: () => void;
   unMute: () => void;
   getVideoData?: () => { title?: string };
+  getAvailableQualityLevels?: () => string[];
+  getPlaybackQuality?: () => string;
+  setPlaybackQuality?: (q: string) => void;
+  setPlaybackQualityRange?: (min: string, max: string) => void;
   destroy: () => void;
 }
+
 
 interface Props {
   source: PlayerSource | null;
@@ -66,6 +94,8 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
 ) {
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytRef = useRef<YTPlayer | null>(null);
+  const qualityRef = useRef<string>("auto");
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const [aspect, setAspect] = useState(16 / 9);
   const readyCb = useRef(onReady);
@@ -224,6 +254,38 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       requestPictureInPicture: () => {
         void videoRef.current?.requestPictureInPicture?.();
       },
+      getQualities: () => {
+        const yt = ytRef.current;
+        if (yt) {
+          const levels = yt.getAvailableQualityLevels?.() ?? [];
+          const usable = levels.filter((q) => q && q !== "auto");
+          return usable.length ? ["auto", ...usable] : [];
+        }
+        const v = videoRef.current;
+        // A plain <video> has a single encoded resolution — expose it read-only.
+        return v?.videoHeight ? ["auto"] : [];
+      },
+      getQuality: () => {
+        const yt = ytRef.current;
+        if (yt) return qualityRef.current || yt.getPlaybackQuality?.() || "auto";
+        return "auto";
+      },
+      setQuality: (q) => {
+        const yt = ytRef.current;
+        if (!yt) return;
+        qualityRef.current = q;
+        // Both calls matter: the range pins a ceiling, the setter nudges now.
+        if (q === "auto") yt.setPlaybackQualityRange?.("tiny", "highres");
+        else yt.setPlaybackQualityRange?.(q, q);
+        yt.setPlaybackQuality?.(q === "auto" ? "default" : q);
+      },
+      getVideoSize: () => {
+        const v = videoRef.current;
+        if (v?.videoWidth && v.videoHeight)
+          return { width: v.videoWidth, height: v.videoHeight };
+        return null;
+      },
+
     }),
     [aspect],
   );

@@ -11,7 +11,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Player, type PlayerHandle, type PlayerSource } from "@/components/videoink/Player";
+import {
+  Player,
+  qualityLabel,
+  type PlayerHandle,
+  type PlayerSource,
+} from "@/components/videoink/Player";
+
 import { ObjectCanvas } from "@/components/videoink/ObjectCanvas";
 import { RadialToolDock } from "@/components/videoink/RadialToolDock";
 import { useEditor } from "@/components/videoink/useEditor";
@@ -134,6 +140,9 @@ function Workstation() {
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
+  const [qualities, setQualities] = useState<{ id: string; label: string }[]>([]);
+  const [quality, setQuality] = useState("auto");
+
   const captureRef = useRef<ScreenCaptureSession | null>(null);
   const [captureActive, setCaptureActive] = useState(false);
 
@@ -227,6 +236,45 @@ function Workstation() {
     }, 250);
     return () => clearInterval(t);
   }, [source]);
+
+  /* ------------------ available resolutions (poll) ------------------- */
+  useEffect(() => {
+    if (!source) {
+      setQualities([]);
+      setQuality("auto");
+      return;
+    }
+    let stop = false;
+    const read = () => {
+      const p = playerRef.current;
+      if (!p || stop) return;
+      const ids = p.getQualities();
+      const size = p.getVideoSize();
+      const list = ids.map((id) => ({
+        id,
+        label:
+          id === "auto" && size
+            ? `${size.height}p (source)`
+            : id === "auto"
+              ? "Auto"
+              : qualityLabel(id),
+      }));
+      setQualities((prev) =>
+        prev.length === list.length && prev.every((q, i) => q.id === list[i]!.id && q.label === list[i]!.label)
+          ? prev
+          : list,
+      );
+      setQuality(p.getQuality());
+    };
+    read();
+    const t = setInterval(read, 1000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [source]);
+
+
 
   /* ------------------------- screen capture -------------------------- */
   const toggleCapture = useCallback(async () => {
@@ -864,6 +912,13 @@ function Workstation() {
                   setRate(r);
                   playerRef.current?.setPlaybackRate(r);
                 }}
+                qualities={qualities}
+                quality={quality}
+                onQuality={(q) => {
+                  setQuality(q);
+                  playerRef.current?.setQuality(q);
+                }}
+
                 onFullscreen={() => {
                   const el = stageRef.current;
                   if (!el) return;
