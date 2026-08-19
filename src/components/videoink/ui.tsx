@@ -1352,6 +1352,26 @@ export function VideoControls(p: VideoControlsProps) {
         </SelectContent>
       </Select>
 
+      {p.qualities && p.qualities.length > 0 && (
+        <Select value={p.quality ?? "auto"} onValueChange={(v) => p.onQuality?.(v)}>
+          <SelectTrigger
+            className="hidden h-8 w-[88px] shrink-0 text-xs sm:flex"
+            aria-label="Video resolution"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {p.qualities.map((q) => (
+              <SelectItem key={q.id} value={q.id}>
+                {q.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+
+
       <Button
         size="sm"
         variant="ghost"
