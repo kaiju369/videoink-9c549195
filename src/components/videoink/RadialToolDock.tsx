@@ -64,9 +64,10 @@ const PETALS: Petal[] = [
   { action: "redo", icon: Redo2, label: "Redo" },
 ];
 
-const RADIUS_DESKTOP = 96;
-const RADIUS_COMPACT = 74;
+const RADIUS_DESKTOP = 112;
+const RADIUS_COMPACT = 88;
 const BUTTON = 56;
+
 
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(false);
