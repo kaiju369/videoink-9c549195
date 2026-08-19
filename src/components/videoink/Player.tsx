@@ -252,6 +252,38 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       requestPictureInPicture: () => {
         void videoRef.current?.requestPictureInPicture?.();
       },
+      getQualities: () => {
+        const yt = ytRef.current;
+        if (yt) {
+          const levels = yt.getAvailableQualityLevels?.() ?? [];
+          const usable = levels.filter((q) => q && q !== "auto");
+          return usable.length ? ["auto", ...usable] : [];
+        }
+        const v = videoRef.current;
+        // A plain <video> has a single encoded resolution — expose it read-only.
+        return v?.videoHeight ? ["auto"] : [];
+      },
+      getQuality: () => {
+        const yt = ytRef.current;
+        if (yt) return qualityRef.current || yt.getPlaybackQuality?.() || "auto";
+        return "auto";
+      },
+      setQuality: (q) => {
+        const yt = ytRef.current;
+        if (!yt) return;
+        qualityRef.current = q;
+        // Both calls matter: the range pins a ceiling, the setter nudges now.
+        if (q === "auto") yt.setPlaybackQualityRange?.("tiny", "highres");
+        else yt.setPlaybackQualityRange?.(q, q);
+        yt.setPlaybackQuality?.(q === "auto" ? "default" : q);
+      },
+      getVideoSize: () => {
+        const v = videoRef.current;
+        if (v?.videoWidth && v.videoHeight)
+          return { width: v.videoWidth, height: v.videoHeight };
+        return null;
+      },
+
     }),
     [aspect],
   );
