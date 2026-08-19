@@ -134,6 +134,9 @@ function Workstation() {
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
+  const [qualities, setQualities] = useState<{ id: string; label: string }[]>([]);
+  const [quality, setQuality] = useState("auto");
+
   const captureRef = useRef<ScreenCaptureSession | null>(null);
   const [captureActive, setCaptureActive] = useState(false);
 
