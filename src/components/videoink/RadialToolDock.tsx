@@ -301,13 +301,19 @@ export function RadialToolDock(p: RadialToolDockProps) {
         {/* quick panels */}
         {open && (
           <div
-            className="pointer-events-auto absolute w-[232px] rounded-xl border border-border/70 bg-card/97 p-3 shadow-xl backdrop-blur"
+            className="pointer-events-auto absolute max-h-[60vh] w-[232px] overflow-y-auto rounded-xl border border-border/70 bg-card/97 p-3 shadow-xl backdrop-blur"
             style={{
-              transform: `translate(${openLeft ? "calc(-100% - 34px)" : "34px"}, ${
-                openUp ? "calc(-100% + 24px)" : "-24px"
-              })`,
+              // The fan occupies the diagonal away from the nearest corner, so
+              // the panel sits on the opposite vertical side and is clamped
+              // horizontally to stay fully on screen.
+              transform: `translate(${
+                Math.min(Math.max(8, px - 116), Math.max(8, viewport.w - 240)) - px
+              }px, ${openUp ? BUTTON / 2 + 14 : -(BUTTON / 2 + 14)}px) ${
+                openUp ? "" : "translateY(-100%)"
+              }`,
             }}
           >
+
             <div className="mb-2 flex items-center gap-1">
               {(["color", "size", "profile"] as const).map((k) => (
                 <button
