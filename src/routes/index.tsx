@@ -912,6 +912,13 @@ function Workstation() {
                   setRate(r);
                   playerRef.current?.setPlaybackRate(r);
                 }}
+                qualities={qualities}
+                quality={quality}
+                onQuality={(q) => {
+                  setQuality(q);
+                  playerRef.current?.setQuality(q);
+                }}
+
                 onFullscreen={() => {
                   const el = stageRef.current;
                   if (!el) return;
