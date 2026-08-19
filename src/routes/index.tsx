@@ -11,7 +11,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Player, type PlayerHandle, type PlayerSource } from "@/components/videoink/Player";
+import {
+  Player,
+  qualityLabel,
+  type PlayerHandle,
+  type PlayerSource,
+} from "@/components/videoink/Player";
+
 import { ObjectCanvas } from "@/components/videoink/ObjectCanvas";
 import { RadialToolDock } from "@/components/videoink/RadialToolDock";
 import { useEditor } from "@/components/videoink/useEditor";
