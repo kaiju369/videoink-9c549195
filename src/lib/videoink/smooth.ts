@@ -7,22 +7,34 @@ import type { InkPoint } from "./types";
  * into a clean tapered outline without visible wobble or corner artefacts.
  */
 
-const MIN_STEP = 0.0018; // normalized units between accepted input samples
+/**
+ * Sub-pixel input gate. On a 1080-tall stage 0.0004 normalized units is well
+ * under half a device pixel, so we keep essentially every distinct sample the
+ * digitiser reports and let the filter (not a coarse distance gate) remove
+ * jitter. A large gate was the source of visible faceting on slow strokes.
+ */
+const MIN_STEP = 0.0004;
 
 export function pointDistance(a: InkPoint, b: InkPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Exponential low-pass with a velocity-aware cutoff (one-euro style). */
+/**
+ * One-euro filter: adaptive low-pass whose cutoff rises with speed. Slow
+ * motion gets heavy smoothing (kills stylus tremor at pixel scale), fast
+ * motion gets almost none (no lag, no corner rounding).
+ */
 export class InkFilter {
   private last: InkPoint | null = null;
   private lastRaw: InkPoint | null = null;
+  private lastSpeed = 0;
 
   constructor(private strength = 0.5) {}
 
   reset() {
     this.last = null;
     this.lastRaw = null;
+    this.lastSpeed = 0;
   }
 
   /** Returns the filtered point, or null when the sample is too close to keep. */
@@ -32,22 +44,31 @@ export class InkFilter {
       this.lastRaw = { ...p };
       return this.last;
     }
-    const speed = pointDistance(p, this.lastRaw);
-    if (!force && speed < MIN_STEP) return null;
+    const raw = pointDistance(p, this.lastRaw);
+    if (!force && raw < MIN_STEP) return null;
     this.lastRaw = { ...p };
-    // Fast strokes need less smoothing (keeps them responsive); slow strokes
-    // need more (kills stylus jitter).
-    const base = 0.2 + 0.7 * (1 - Math.min(1, this.strength));
-    const alpha = Math.min(1, base + speed * 45);
+
+    // Smooth the speed estimate itself, otherwise the adaptive cutoff jitters
+    // and reintroduces the wobble we are trying to remove.
+    this.lastSpeed = this.lastSpeed * 0.6 + raw * 0.4;
+
+    const s = Math.min(1, Math.max(0, this.strength));
+    // minCutoff -> how much a stationary pen is smoothed; beta -> how fast the
+    // filter opens up as the pen accelerates.
+    const minAlpha = 0.08 + 0.22 * (1 - s);
+    const beta = 55 + 35 * (1 - s);
+    const alpha = Math.min(1, minAlpha + this.lastSpeed * beta);
+
     const out: InkPoint = {
       x: this.last.x + alpha * (p.x - this.last.x),
       y: this.last.y + alpha * (p.y - this.last.y),
-      pressure: this.last.pressure + 0.35 * (p.pressure - this.last.pressure),
+      pressure: this.last.pressure + 0.25 * (p.pressure - this.last.pressure),
     };
     this.last = out;
     return out;
   }
 }
+
 
 /** Remove duplicate / near-duplicate samples. */
 export function dedupe(points: InkPoint[], eps = 1e-5): InkPoint[] {
