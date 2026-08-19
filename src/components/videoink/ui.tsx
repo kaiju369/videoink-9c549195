@@ -1255,6 +1255,10 @@ export interface VideoControlsProps {
   muted: boolean;
   rate: number;
   disabled?: boolean;
+  /** available resolutions; empty hides the picker */
+  qualities?: { id: string; label: string }[];
+  quality?: string;
+  onQuality?: (q: string) => void;
   onPlayPause: () => void;
   onSeek: (t: number) => void;
   onSkip: (delta: number) => void;
@@ -1263,6 +1267,7 @@ export interface VideoControlsProps {
   onRate: (r: number) => void;
   onFullscreen: () => void;
 }
+
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
