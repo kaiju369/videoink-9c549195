@@ -120,7 +120,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
    * derived from arc length, so items can never overlap regardless of how
    * many tools the fan holds or how small the screen is.
    */
-  const { petals, maxRadius } = useMemo(() => {
+  const { petals } = useMemo(() => {
     const n = PETALS.length;
     const ITEM = 44;
     const GAP = 12;
