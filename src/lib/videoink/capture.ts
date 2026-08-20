@@ -22,20 +22,16 @@ function makeCanvas(width: number, height: number) {
   return { canvas, ctx };
 }
 
-/** Encode a canvas once, choosing lossless PNG when small enough, otherwise high-quality JPEG. */
 function encodeOnce(canvas: HTMLCanvasElement): string | null {
   try {
     const pixels = canvas.width * canvas.height;
-    if (pixels <= PNG_PIXEL_BUDGET) {
-      return canvas.toDataURL("image/png");
-    }
+    if (pixels <= PNG_PIXEL_BUDGET) return canvas.toDataURL("image/png");
     return canvas.toDataURL("image/jpeg", 0.94);
   } catch {
     return null;
   }
 }
 
-/** Human-readable summary of a snapshot's provenance, for UI/error surfaces. */
 export function describeSnapshot(
   status: SnapshotInfo["status"],
   method: SnapshotInfo["captureMethod"],
@@ -60,23 +56,13 @@ export function describeSnapshot(
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Viewport → captured-surface mapping                                 */
-/* ------------------------------------------------------------------ */
-
 export interface SurfaceMapping {
-  /** crop rect in captured-surface pixel space, already clamped to bounds */
   sx: number;
   sy: number;
   sw: number;
   sh: number;
 }
 
-/**
- * Map a DOM viewport rectangle to the pixel rectangle it corresponds to on
- * the captured surface (tab / window / monitor), accounting for DPR, browser
- * zoom, and — for window/monitor capture — the OS window position.
- */
 export function mapViewportToSurface(
   viewportRect: DOMRect,
   surfaceWidth: number,
@@ -86,13 +72,12 @@ export function mapViewportToSurface(
   const dpr = window.devicePixelRatio || 1;
   const zoom = window.visualViewport?.scale || 1;
   const pxScale = dpr * zoom;
-
   let originX = 0;
   let originY = 0;
 
   if (displaySurface === "monitor" || displaySurface === "window") {
     const chromeX = window.screenX ?? 0;
-    const chromeTop = (window.outerHeight - window.innerHeight) || 0;
+    const chromeTop = window.outerHeight - window.innerHeight || 0;
     originX = chromeX;
     originY = (window.screenY ?? 0) + chromeTop;
   }
@@ -105,7 +90,6 @@ export function mapViewportToSurface(
     displaySurface === "monitor" || displaySurface === "window"
       ? window.screen?.height || window.innerHeight
       : window.innerHeight;
-
   const scaleX = assumedWidth > 0 ? surfaceWidth / assumedWidth : pxScale;
   const scaleY = assumedHeight > 0 ? surfaceHeight / assumedHeight : pxScale;
 
@@ -113,16 +97,13 @@ export function mapViewportToSurface(
   const rawY = (originY + viewportRect.top) * scaleY;
   const rawW = viewportRect.width * scaleX;
   const rawH = viewportRect.height * scaleY;
-
   const sx = Math.min(Math.max(0, rawX), Math.max(0, surfaceWidth - 1));
   const sy = Math.min(Math.max(0, rawY), Math.max(0, surfaceHeight - 1));
   const sw = Math.min(Math.max(1, rawW), surfaceWidth - sx);
   const sh = Math.min(Math.max(1, rawH), surfaceHeight - sy);
-
   return { sx, sy, sw, sh };
 }
 
-/** A live screen-capture session the user explicitly authorised. */
 export class ScreenCaptureSession {
   private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
@@ -135,17 +116,11 @@ export class ScreenCaptureSession {
   }
 
   static get supported() {
-    return (
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getDisplayMedia
-    );
+    return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
   }
 
   async start(onEnded?: () => void) {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 },
-      audio: false,
-    });
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
     const video = document.createElement("video");
     video.srcObject = stream;
     video.muted = true;
@@ -156,8 +131,7 @@ export class ScreenCaptureSession {
     this.onEndedCb = onEnded ?? null;
     this.ended = false;
     const track = stream.getVideoTracks()[0];
-    this.displaySurface = (track?.getSettings() as MediaTrackSettings & { displaySurface?: string })
-      ?.displaySurface;
+    this.displaySurface = (track?.getSettings() as MediaTrackSettings & { displaySurface?: string })?.displaySurface;
     track?.addEventListener("ended", () => this.handleEnded());
   }
 
@@ -189,7 +163,6 @@ export class ScreenCaptureSession {
     this.video = null;
   }
 
-  /** Crop the captured surface to a viewport rectangle, in native surface resolution. */
   grab(viewportRect: DOMRect): HTMLCanvasElement | null {
     const video = this.video;
     if (!video || !video.videoWidth) return null;
@@ -220,12 +193,9 @@ export interface CaptureContext {
   objects: PageObject[];
   videoEl: HTMLVideoElement | null;
   youtubeVideoId?: string | undefined;
-  /** viewport rect of the visible video content, for screen capture cropping */
   viewportRect: DOMRect | null;
   session: ScreenCaptureSession | null;
-  /** Hide the ink/UI overlay for exactly one screen capture. */
   hideOverlay?: (() => Promise<void> | void) | undefined;
-  /** Restore the overlay after the grab (always called if hideOverlay ran). */
   restoreOverlay?: (() => Promise<void> | void) | undefined;
 }
 
@@ -233,9 +203,34 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/**
+ * Hide canvas overlays that occupy the captured viewport when the caller did
+ * not provide explicit callbacks. This is a defensive fallback for the
+ * existing UI and prevents canonical screen captures from baking annotations.
+ */
+function hideCanvasOverlays(viewportRect: DOMRect): () => void {
+  const changed: Array<{ el: HTMLElement; visibility: string }> = [];
+  const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>("canvas"));
+  for (const canvas of canvases) {
+    const box = canvas.getBoundingClientRect();
+    const overlaps =
+      box.width > 0 &&
+      box.height > 0 &&
+      box.left < viewportRect.right &&
+      box.right > viewportRect.left &&
+      box.top < viewportRect.bottom &&
+      box.bottom > viewportRect.top;
+    if (!overlaps) continue;
+    changed.push({ el: canvas, visibility: canvas.style.visibility });
+    canvas.style.visibility = "hidden";
+  }
+  return () => {
+    for (const item of changed) item.el.style.visibility = item.visibility;
+  };
+}
+
 export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotInfo> {
-  const { rect, videoEl, youtubeVideoId, viewportRect, session, hideOverlay, restoreOverlay } =
-    ctxIn;
+  const { rect, videoEl, youtubeVideoId, viewportRect, session, hideOverlay, restoreOverlay } = ctxIn;
 
   if (videoEl && videoEl.videoWidth) {
     try {
@@ -258,14 +253,18 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
   }
 
   if (session?.active && viewportRect) {
-    let hidOverlay = false;
+    let restore: (() => void) | null = null;
+    let explicitHide = false;
     try {
       if (hideOverlay) {
         await hideOverlay();
-        hidOverlay = true;
-        await nextFrame();
-        await nextFrame();
+        explicitHide = true;
+      } else {
+        restore = hideCanvasOverlays(viewportRect);
       }
+      await nextFrame();
+      await nextFrame();
+
       const grabbed = session.grab(viewportRect);
       const dataUrl = grabbed ? encodeOnce(grabbed) : null;
       if (grabbed && dataUrl) {
@@ -275,18 +274,14 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
           width: grabbed.width,
           height: grabbed.height,
           captureMethod: "screen-capture",
-          // A screen capture without a hideOverlay callback is legacy and may
-          // contain annotations. New callers must provide the callback.
-          inkBaked: !hidOverlay,
+          inkBaked: false,
         };
       }
     } finally {
-      if (hidOverlay) {
-        try {
-          await restoreOverlay?.();
-        } catch {
-          /* ignore */
-        }
+      try {
+        if (explicitHide) await restoreOverlay?.();
+      } finally {
+        restore?.();
       }
     }
   }
