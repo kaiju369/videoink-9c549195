@@ -128,16 +128,16 @@ export type SnapshotCaptureMethod =
   | "none";
 
 export interface SnapshotInfo {
-  /** data URL of a clean frame, reference image, or ink-only placeholder */
   status: SnapshotStatus;
+  /** data URL of flattened frame + ink (or reference image) */
   dataUrl?: string | undefined;
   width?: number | undefined;
   height?: number | undefined;
   captureMethod?: SnapshotCaptureMethod | undefined;
   /**
-   * True when the ink is already flattened into `dataUrl` (legacy pages only).
-   * New screen captures hide the annotation overlay first and therefore remain
-   * canonical clean backgrounds with vector objects rendered separately.
+   * True when the ink is already flattened into `dataUrl` (legacy pages and
+   * screen grabs). When false the snapshot is a clean background frame and the
+   * objects must be drawn on top at render/export time.
    */
   inkBaked?: boolean | undefined;
 }
@@ -190,12 +190,11 @@ export interface Annotation {
 }
 
 export interface RecoveryDoc {
-  id: string;
+  id: "active";
   pageId?: string | undefined;
   title: string;
   sourceType?: SourceType | undefined;
   sourceKey?: string | undefined;
-  sourceUrl?: string | undefined;
   youtubeVideoId?: string | undefined;
   timestamp: number;
   duration: number;
@@ -205,25 +204,26 @@ export interface RecoveryDoc {
 }
 
 export interface VideoRecord {
-  id: string;
-  sourceType: SourceType;
-  sourceKey: string;
+  key: string;
   title: string;
-  sourceUrl?: string | undefined;
+  sourceType: SourceType;
   youtubeVideoId?: string | undefined;
-  duration?: number | undefined;
-  aspectRatio?: number | undefined;
-  createdAt: number;
+  lastPosition: number;
+  duration: number;
   updatedAt: number;
 }
 
 export function formatTime(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
+  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return h > 0
+    ? `${h}:${mm}:${String(s).padStart(2, "0")}`
+    : `${mm}:${String(s).padStart(2, "0")}`;
 }
 
 export function uid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 }
