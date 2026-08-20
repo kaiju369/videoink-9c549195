@@ -119,9 +119,12 @@ export const Route = createFileRoute("/")({
           "One-handed hotkeys, pressure-sensitive ink, shapes, text and batch export. Everything stays on your device.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://videoink.lovable.app/" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: [{ rel: "canonical", href: "https://videoink.lovable.app/" }],
   }),
+
 });
 
 function Workstation() {
@@ -735,7 +738,13 @@ function Workstation() {
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-2">
-        <h1 className="font-display text-xl italic tracking-tight">VideoInk</h1>
+        <h1 className="font-display text-xl italic tracking-tight">
+          VideoInk
+          <span className="ml-2 hidden text-sm not-italic text-muted-foreground sm:inline">
+            Video annotation tool for lecture videos
+          </span>
+        </h1>
+
         <div className="flex min-w-[240px] flex-1 items-center gap-2">
           <Input
             value={urlInput}
@@ -783,9 +792,16 @@ function Workstation() {
         <Button size="sm" variant="ghost" onClick={() => setSettingsOpen(true)} className="gap-1.5">
           <Settings2 className="size-4" /> Settings
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setLibraryOpen((v) => !v)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={libraryOpen ? "Hide page library" : "Show page library"}
+          title={libraryOpen ? "Hide page library" : "Show page library"}
+          onClick={() => setLibraryOpen((v) => !v)}
+        >
           {libraryOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
         </Button>
+
       </header>
 
       <div className="flex min-h-0 flex-1">
