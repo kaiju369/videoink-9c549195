@@ -44,7 +44,9 @@ export function describeSnapshot(
     case "captured":
       return method === "html5-video"
         ? "Captured directly from the video frame."
-        : "Captured from the screen-share stream.";
+        : method === "screen-capture"
+          ? "Captured from the authorised screen-share stream."
+          : "Captured from the video source.";
     case "reference-only":
       return "Reference thumbnail only — not an actual video frame.";
     case "unavailable":
@@ -89,20 +91,12 @@ export function mapViewportToSurface(
   let originY = 0;
 
   if (displaySurface === "monitor" || displaySurface === "window") {
-    // The captured surface is the whole screen (or an OS window). The
-    // viewportRect is relative to our own window's viewport, so add the
-    // window's screen position and chrome (outer - inner) to translate.
     const chromeX = window.screenX ?? 0;
     const chromeTop = (window.outerHeight - window.innerHeight) || 0;
     originX = chromeX;
     originY = (window.screenY ?? 0) + chromeTop;
   }
-  // For "browser"/tab capture the surface is exactly our viewport, so
-  // originX/originY stay 0 and we only need the pixel-ratio scale.
 
-  // Derive the effective scale from the captured surface size vs. our
-  // window's own logical size, rather than assuming DPR alone — some
-  // browsers report the surface already in device pixels, others don't.
   const assumedWidth =
     displaySurface === "monitor" || displaySurface === "window"
       ? window.screen?.width || window.innerWidth
@@ -174,7 +168,6 @@ export class ScreenCaptureSession {
     this.onEndedCb?.();
   }
 
-  /** Explicitly detect end-of-capture (e.g. polling readyState) and clean up. */
   checkEnded() {
     const track = this.stream?.getVideoTracks()[0];
     if (track && track.readyState !== "live") this.handleEnded();
@@ -230,12 +223,7 @@ export interface CaptureContext {
   /** viewport rect of the visible video content, for screen capture cropping */
   viewportRect: DOMRect | null;
   session: ScreenCaptureSession | null;
-  /**
-   * Hide the ink/UI overlay for exactly one grab. Screen-capture snapshots
-   * would otherwise bake the on-screen ink and cursor into the "clean" frame.
-   * If omitted, capture still proceeds but inkBaked is set true as a
-   * last-resort (legacy behaviour).
-   */
+  /** Hide the ink/UI overlay for exactly one screen capture. */
   hideOverlay?: (() => Promise<void> | void) | undefined;
   /** Restore the overlay after the grab (always called if hideOverlay ran). */
   restoreOverlay?: (() => Promise<void> | void) | undefined;
@@ -249,7 +237,6 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
   const { rect, videoEl, youtubeVideoId, viewportRect, session, hideOverlay, restoreOverlay } =
     ctxIn;
 
-  // 1. Direct HTML5 video frame capture — always clean, native resolution.
   if (videoEl && videoEl.videoWidth) {
     try {
       const { canvas, ctx } = makeCanvas(videoEl.videoWidth, videoEl.videoHeight);
@@ -270,15 +257,12 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
     }
   }
 
-  // 2. User-authorised screen capture, cropped to the player region.
   if (session?.active && viewportRect) {
     let hidOverlay = false;
     try {
       if (hideOverlay) {
         await hideOverlay();
         hidOverlay = true;
-        // give the browser one paint cycle to actually remove the overlay
-        // before the video frame reflects it.
         await nextFrame();
         await nextFrame();
       }
@@ -290,10 +274,10 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
           dataUrl,
           width: grabbed.width,
           height: grabbed.height,
-          captureMethod: "html5-video",
-          // If we could hide the overlay before grabbing, the frame is clean.
-          // Otherwise fall back to the legacy assumption that ink is baked in.
-          inkBaked: !hideOverlay,
+          captureMethod: "screen-capture",
+          // A screen capture without a hideOverlay callback is legacy and may
+          // contain annotations. New callers must provide the callback.
+          inkBaked: !hidOverlay,
         };
       }
     } finally {
@@ -307,7 +291,6 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
     }
   }
 
-  // 3. Reference-only: YouTube thumbnail behind the ink (never a real frame).
   if (youtubeVideoId) {
     try {
       const img = await loadImage(youtubeThumbnail(youtubeVideoId));
@@ -329,7 +312,6 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
     }
   }
 
-  // 4. Ink only — a flat placeholder background; no frame data available.
   try {
     const { canvas, ctx } = makeCanvas(rect.width, rect.height);
     ctx.fillStyle = "#11100e";
