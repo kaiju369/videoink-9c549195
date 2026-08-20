@@ -3,7 +3,7 @@
  * of a single point, so fast pointer motion doesn't leave un-erased gaps.
  * Shapes/text are removed whole when touched.
  */
-import type { Box, Pt } from "./objects";
+import type { Pt } from "./objects";
 import { hitTest, outlinePoints, type EraseResult } from "./objects";
 import { segmentIntersectsCircle } from "./hit-geometry";
 import type { InkPoint, PageObject, Stroke } from "./types";
@@ -95,31 +95,52 @@ export class PartialEraseSession {
     const working = this.working();
     const { removed, added } = erasePartialSweep(working, from, to, radius);
     if (!removed.length) return false;
-    for (const o of removed) {
-      this.removedIds.add(o.id.split("-")[0] === o.id ? o.id : this.originalIdOf(o.id));
-    }
+
+    // A later sweep can hit only one of several fragments produced by an
+    // earlier sweep. Keep every untouched fragment for the original stroke;
+    // replace only the fragments that were actually removed this step.
+    const removedByOrigin = new Map<string, Set<string>>();
     for (const o of removed) {
       const origin = this.originalIdOf(o.id);
-      const frags = added.filter((a) => this.originalIdOf(a.id) === origin);
-      if (o.kind === "stroke") this.survivors.set(origin, frags);
-      else this.survivors.delete(origin);
+      this.removedIds.add(origin);
+      let ids = removedByOrigin.get(origin);
+      if (!ids) {
+        ids = new Set<string>();
+        removedByOrigin.set(origin, ids);
+      }
+      ids.add(o.id);
+
+      if (o.kind !== "stroke") this.survivors.delete(origin);
     }
+
+    for (const [origin, ids] of removedByOrigin) {
+      const existing = this.survivors.get(origin) ?? [];
+      const kept = existing.filter((fragment) => !ids.has(fragment.id));
+      const replacement = added.filter(
+        (fragment) => this.originalIdOf(fragment.id) === origin,
+      );
+      if (kept.length || replacement.length) {
+        this.survivors.set(origin, [...kept, ...replacement]);
+      } else {
+        this.survivors.delete(origin);
+      }
+    }
+
     return true;
   }
 
   private originalIdOf(id: string): string {
-    // fragment ids look like `${originalId}-${n}-${rand}`; original ids never
-    // contain that suffix pattern in practice (uid() has one dash + suffix).
-    const known = this.base.map((o) => o.id);
-    for (const k of known) if (id === k || id.startsWith(`${k}-`)) return k;
+    // Fragment ids look like `${originalId}-${n}-${rand}`. Resolve against
+    // the immutable base IDs so an original ID containing dashes is handled
+    // safely as well.
+    for (const o of this.base) if (id === o.id || id.startsWith(`${o.id}-`)) return o.id;
     return id;
   }
 
   private working(): PageObject[] {
-    const removed = this.removedIds;
     const out: PageObject[] = [];
     for (const o of this.base) {
-      if (removed.has(o.id)) {
+      if (this.removedIds.has(o.id)) {
         const frags = this.survivors.get(o.id);
         if (frags) out.push(...frags);
         continue;
