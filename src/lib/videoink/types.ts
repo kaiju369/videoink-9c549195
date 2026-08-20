@@ -129,16 +129,12 @@ export type SnapshotCaptureMethod =
 
 export interface SnapshotInfo {
   status: SnapshotStatus;
-  /** data URL of flattened frame + ink (or reference image) */
+  /** data URL containing ONLY the captured/reference frame pixels; annotations are stored separately */
   dataUrl?: string | undefined;
   width?: number | undefined;
   height?: number | undefined;
   captureMethod?: SnapshotCaptureMethod | undefined;
-  /**
-   * True when the ink is already flattened into `dataUrl` (legacy pages and
-   * screen grabs). When false the snapshot is a clean background frame and the
-   * objects must be drawn on top at render/export time.
-   */
+  /** True only for legacy/imported snapshots whose pixels already contain annotations. */
   inkBaked?: boolean | undefined;
 }
 
@@ -158,72 +154,43 @@ export interface Page {
   sourceType?: SourceType | undefined;
   sourceKey?: string | undefined;
   sourceUrl?: string | undefined;
-  youtubeVideoId?: string | undefined;
+  sourceVideoId?: string | undefined;
   videoTitle?: string | undefined;
   timestamp?: number | undefined;
   duration?: number | undefined;
-  aspectRatio: number;
-  objects: PageObject[];
+  aspectRatio?: number | undefined;
   snapshot: SnapshotInfo;
-  /** small cached preview, regenerated on save */
-  thumbnail?: string | undefined;
-  createdAt: number;
-  updatedAt: number;
-}
-
-/** Legacy record shape (schema v1) kept for migration. */
-export interface Annotation {
-  id: string;
-  schemaVersion: number;
-  sourceType: SourceType;
-  sourceKey: string;
-  sourceUrl?: string | undefined;
-  youtubeVideoId?: string | undefined;
-  title: string;
-  timestamp: number;
-  duration: number;
-  videoAspectRatio: number;
-  strokes: Stroke[];
-  snapshot: SnapshotInfo;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface RecoveryDoc {
-  id: "active";
-  pageId?: string | undefined;
-  title: string;
-  sourceType?: SourceType | undefined;
-  sourceKey?: string | undefined;
-  youtubeVideoId?: string | undefined;
-  timestamp: number;
-  duration: number;
-  videoAspectRatio: number;
   objects: PageObject[];
+  createdAt: number;
   updatedAt: number;
 }
 
 export interface VideoRecord {
   key: string;
-  title: string;
   sourceType: SourceType;
-  youtubeVideoId?: string | undefined;
-  lastPosition: number;
-  duration: number;
-  updatedAt: number;
+  sourceUrl: string;
+  title: string;
+  duration?: number | undefined;
+  lastUsedAt: number;
+  createdAt: number;
+}
+
+export interface RecoveryDoc {
+  version: 1;
+  savedAt: number;
+  pages: Page[];
 }
 
 export function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  return h > 0
-    ? `${h}:${mm}:${String(s).padStart(2, "0")}`
-    : `${mm}:${String(s).padStart(2, "0")}`;
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 export function uid(): string {
-  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
