@@ -415,9 +415,19 @@ export function RadialToolDock(p: RadialToolDockProps) {
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onClick={(e) => {
+            // Fallback for synthetic / assistive clicks that never produce a
+            // pointer sequence; deduped against the pointerup toggle.
+            e.preventDefault();
+            if (Date.now() - lastToggle.current < 400) return;
+            lastToggle.current = Date.now();
+            setOpen((o) => !o);
+            setPanel("none");
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
+              lastToggle.current = Date.now();
               setOpen((o) => !o);
             }
           }}
@@ -438,7 +448,8 @@ export function RadialToolDock(p: RadialToolDockProps) {
             className="pointer-events-none absolute inset-1 rounded-full opacity-25"
             style={{ backgroundColor: activeColor }}
           />
-          <CircleIcon className="relative size-5" style={{ color: activeColor }} />
+          <CircleIcon className="pointer-events-none relative size-5" style={{ color: activeColor }} />
+
         </button>
       </div>
     </div>
