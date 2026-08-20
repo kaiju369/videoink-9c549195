@@ -119,9 +119,12 @@ export const Route = createFileRoute("/")({
           "One-handed hotkeys, pressure-sensitive ink, shapes, text and batch export. Everything stays on your device.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://videoink.lovable.app/" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: [{ rel: "canonical", href: "https://videoink.lovable.app/" }],
   }),
+
 });
 
 function Workstation() {

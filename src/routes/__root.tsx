@@ -77,12 +77,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
-      { property: "og:type", content: "website" },
+      { title: "VideoInk — Video annotation tool for lecture notes" },
+      {
+        name: "description",
+        content:
+          "VideoInk is a video annotation tool: freeze any lecture frame, draw and write with your stylus, and export pages as PDF, PNG or ZIP.",
+      },
+      { name: "author", content: "VideoInk" },
+      { property: "og:site_name", content: "VideoInk" },
+      { property: "og:title", content: "VideoInk — Video annotation tool for lecture notes" },
+      {
+        property: "og:description",
+        content:
+          "Draw, highlight and take handwritten notes on top of any video, then export your annotated pages as PDF, PNG or ZIP.",
+      },
+
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
     ],
