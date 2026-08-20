@@ -92,6 +92,8 @@ export function RadialToolDock(p: RadialToolDockProps) {
   const [viewport, setViewport] = useState({ w: 1280, h: 720 });
   const [focusIndex, setFocusIndex] = useState(0);
   const dragState = useRef<{ id: number; dx: number; dy: number; moved: boolean } | null>(null);
+  const lastToggle = useRef(0);
+
 
   useEffect(() => {
     const measure = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
