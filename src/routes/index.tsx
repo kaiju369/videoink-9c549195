@@ -738,7 +738,13 @@ function Workstation() {
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-2 border-b border-border/70 px-3 py-2">
-        <h1 className="font-display text-xl italic tracking-tight">VideoInk</h1>
+        <h1 className="font-display text-xl italic tracking-tight">
+          VideoInk
+          <span className="ml-2 hidden text-sm not-italic text-muted-foreground sm:inline">
+            Video annotation tool for lecture videos
+          </span>
+        </h1>
+
         <div className="flex min-w-[240px] flex-1 items-center gap-2">
           <Input
             value={urlInput}
