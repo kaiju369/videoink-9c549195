@@ -92,6 +92,8 @@ export function RadialToolDock(p: RadialToolDockProps) {
   const [viewport, setViewport] = useState({ w: 1280, h: 720 });
   const [focusIndex, setFocusIndex] = useState(0);
   const dragState = useRef<{ id: number; dx: number; dy: number; moved: boolean } | null>(null);
+  const lastToggle = useRef(0);
+
 
   useEffect(() => {
     const measure = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
@@ -124,7 +126,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
     const n = PETALS.length;
     const ITEM = 44;
     const GAP = 12;
-    const sweep = 150;
+    const sweep = 104;
     // screen coords (y grows down): fan into the free diagonal
     const baseDeg = openLeft ? (openUp ? 225 : 135) : openUp ? 315 : 45;
 
@@ -192,7 +194,9 @@ export function RadialToolDock(p: RadialToolDockProps) {
     if (st.moved) {
       persist({ x: pos.x, y: pos.y });
     } else {
+      lastToggle.current = Date.now();
       setOpen((o) => !o);
+
       setPanel("none");
     }
   };
@@ -415,9 +419,19 @@ export function RadialToolDock(p: RadialToolDockProps) {
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
+          onClick={(e) => {
+            // Fallback for synthetic / assistive clicks that never produce a
+            // pointer sequence; deduped against the pointerup toggle.
+            e.preventDefault();
+            if (Date.now() - lastToggle.current < 400) return;
+            lastToggle.current = Date.now();
+            setOpen((o) => !o);
+            setPanel("none");
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
+              lastToggle.current = Date.now();
               setOpen((o) => !o);
             }
           }}
@@ -438,7 +452,8 @@ export function RadialToolDock(p: RadialToolDockProps) {
             className="pointer-events-none absolute inset-1 rounded-full opacity-25"
             style={{ backgroundColor: activeColor }}
           />
-          <CircleIcon className="relative size-5" style={{ color: activeColor }} />
+          <CircleIcon className="pointer-events-none relative size-5" style={{ color: activeColor }} />
+
         </button>
       </div>
     </div>

@@ -197,15 +197,18 @@ export function velocityPressure(points: InkPoint[], response = 0.3): InkPoint[]
  * input density.
  */
 export function smoothStroke(points: InkPoint[], amount = 0.5): InkPoint[] {
-  const clean = dedupe(points);
+  const clean = dedupe(points, 2e-6);
   if (clean.length < 3) return clean;
   const clampedAmount = Math.min(1, Math.max(0, amount));
-  const spacing = 0.0022 + 0.0035 * clampedAmount;
+  // Dense, sub-pixel resampling: ~1px at 1080p even at max smoothing, so the
+  // committed outline matches the live preview curve exactly.
+  const spacing = 0.0009 + 0.0016 * clampedAmount;
   const resampled = resample(clean, spacing);
   const iterations = clampedAmount > 0.66 ? 2 : clampedAmount > 0.15 ? 1 : 0;
   const smoothed = iterations ? chaikin(resampled, iterations) : resampled;
   // Bound extremely long strokes so perfect-freehand / rendering stays cheap.
-  const MAX_POINTS = 1400;
+  const MAX_POINTS = 2600;
+
   const capped =
     smoothed.length > MAX_POINTS
       ? resample(smoothed, spacing * (smoothed.length / MAX_POINTS))
