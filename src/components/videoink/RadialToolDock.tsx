@@ -126,7 +126,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
     const n = PETALS.length;
     const ITEM = 44;
     const GAP = 12;
-    const sweep = 150;
+    const sweep = 104;
     // screen coords (y grows down): fan into the free diagonal
     const baseDeg = openLeft ? (openUp ? 225 : 135) : openUp ? 315 : 45;
 
