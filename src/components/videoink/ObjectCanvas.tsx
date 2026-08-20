@@ -500,7 +500,7 @@ export function ObjectCanvas({
         const coalesced = e.nativeEvent.getCoalescedEvents?.() ?? [];
         const box = getBounds();
         const samples: InkPoint[] =
-          coalesced.length > 1
+          coalesced.length > 0
             ? coalesced.map((ev) => ({
                 x: (ev.clientX - box.left - rect.left) / rect.width,
                 y: (ev.clientY - box.top - rect.top) / rect.height,
