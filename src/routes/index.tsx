@@ -792,9 +792,16 @@ function Workstation() {
         <Button size="sm" variant="ghost" onClick={() => setSettingsOpen(true)} className="gap-1.5">
           <Settings2 className="size-4" /> Settings
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setLibraryOpen((v) => !v)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={libraryOpen ? "Hide page library" : "Show page library"}
+          title={libraryOpen ? "Hide page library" : "Show page library"}
+          onClick={() => setLibraryOpen((v) => !v)}
+        >
           {libraryOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
         </Button>
+
       </header>
 
       <div className="flex min-h-0 flex-1">

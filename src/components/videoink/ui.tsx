@@ -261,6 +261,8 @@ export function InkToolbar(p: ToolbarProps) {
         size="sm"
         variant={p.prefs.shapeFill ? "secondary" : "ghost"}
         className="shrink-0 gap-1 px-2"
+        aria-label="Fill shapes"
+        aria-pressed={p.prefs.shapeFill}
         title="Fill shapes"
         onClick={() => p.setPrefs({ shapeFill: !p.prefs.shapeFill })}
       >
@@ -271,6 +273,8 @@ export function InkToolbar(p: ToolbarProps) {
         size="sm"
         variant={p.prefs.recognize ? "secondary" : "ghost"}
         className="shrink-0 gap-1 px-2"
+        aria-label="Shape recognition"
+        aria-pressed={p.prefs.recognize}
         title={
           p.prefs.recognize
             ? "Shape recognition on — freehand rectangles, circles, lines and arrows snap to shapes"
@@ -284,6 +288,8 @@ export function InkToolbar(p: ToolbarProps) {
         size="sm"
         variant={p.captureActive ? "secondary" : "ghost"}
         className="gap-1 px-2"
+        aria-label="Screen capture"
+        aria-pressed={p.captureActive}
         title={p.captureActive ? "Screen capture on — click to stop" : "Enable screen capture for real frames"}
         onClick={p.onToggleCapture}
       >
@@ -294,6 +300,7 @@ export function InkToolbar(p: ToolbarProps) {
         size="sm"
         variant="ghost"
         className="gap-1 px-2 text-destructive"
+        aria-label="Delete this page"
         title="Delete this page"
         disabled={!p.canDeletePage}
         onClick={p.onDeletePage}
@@ -306,20 +313,51 @@ export function InkToolbar(p: ToolbarProps) {
 
 
 
-      <Button size="sm" variant="ghost" disabled={!p.canUndo} onClick={p.onUndo} className="gap-1 px-2">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={!p.canUndo}
+        onClick={p.onUndo}
+        className="gap-1 px-2"
+        aria-label="Undo"
+        title="Undo"
+      >
         <Undo2 className="size-4" />
         <Hotkey combo={p.keys["undo"]} />
       </Button>
-      <Button size="sm" variant="ghost" disabled={!p.canRedo} onClick={p.onRedo} className="gap-1 px-2">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={!p.canRedo}
+        onClick={p.onRedo}
+        className="gap-1 px-2"
+        aria-label="Redo"
+        title="Redo"
+      >
         <Redo2 className="size-4" />
         <Hotkey combo={p.keys["redo"]} />
       </Button>
-      <Button size="sm" variant="ghost" onClick={p.onClear} className="gap-1 px-2" title="Clear page">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={p.onClear}
+        className="gap-1 px-2"
+        aria-label="Clear page"
+        title="Clear page"
+      >
         <Trash2 className="size-4" />
       </Button>
-      <Button size="sm" variant="ghost" onClick={p.onCancel} className="px-2" title="Cancel (Esc)">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={p.onCancel}
+        className="px-2"
+        aria-label="Cancel annotation"
+        title="Cancel (Esc)"
+      >
         <X className="size-4" />
       </Button>
+
       <Button size="sm" onClick={p.onSave} className="gap-1">
         <Save className="size-4" /> Save
         <Hotkey combo={p.keys["save"]} />
