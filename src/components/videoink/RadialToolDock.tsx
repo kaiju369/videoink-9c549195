@@ -194,7 +194,9 @@ export function RadialToolDock(p: RadialToolDockProps) {
     if (st.moved) {
       persist({ x: pos.x, y: pos.y });
     } else {
+      lastToggle.current = Date.now();
       setOpen((o) => !o);
+
       setPanel("none");
     }
   };
