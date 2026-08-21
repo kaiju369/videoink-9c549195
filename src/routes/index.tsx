@@ -384,7 +384,8 @@ function Workstation() {
           : direction < 0
             ? framePages.length - 1
             : 0;
-      openLinkedPage(framePages[targetIndex]);
+      const target = framePages[targetIndex];
+      if (target) openLinkedPage(target);
     },
     [framePages, activePage, frozenAt, current, openLinkedPage],
   );
@@ -436,7 +437,7 @@ function Workstation() {
       ? { rank: targetPage.createdRank, order: targetPage.currentOrder }
       : await nextRanks();
     const snapshot = targetPage?.snapshot?.dataUrl
-      ? activePage.snapshot
+      ? targetPage.snapshot
       : await captureSnapshot({
           rect: { left: 0, top: 0, width: rect.width || 1280, height: rect.height || 720 },
           objects,
