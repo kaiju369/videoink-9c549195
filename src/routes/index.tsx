@@ -526,8 +526,34 @@ function Workstation() {
     return () => window.clearTimeout(timer);
   }, [annotating, activePage, editor.objects, editor.dirty]);
 
+  /** A full-width empty text block so a blank note is typable immediately. */
+  const makeNoteTextBlock = useCallback((): TextObject => ({
+    kind: "text",
+    id: uid(),
+    z: 1,
+    createdAt: Date.now(),
+    x: 0.06,
+    y: 0.08,
+    w: 0.88,
+    h: 0.84,
+    text: "",
+    fontSize: prefs.text.fontSize,
+    fontFamily: prefs.text.fontFamily,
+    bold: prefs.text.bold,
+    italic: prefs.text.italic,
+    underline: prefs.text.underline,
+    align: prefs.text.align,
+    color: prefs.text.color,
+    background: prefs.text.background,
+    border: prefs.text.border,
+    opacity: 1,
+  }), [prefs.text]);
+
   const addBlankPage = useCallback(async () => {
     const ranks = await nextRanks();
+    // Phase 7: blank notes are edited in place — the page opens with a live
+    // text block already focused, so there is no modal detour before typing.
+    const block = makeNoteTextBlock();
     const page: Page = {
       id: uid(),
       schemaVersion: SCHEMA_VERSION,
@@ -536,7 +562,7 @@ function Workstation() {
       currentOrder: ranks.order,
       title: `Blank note ${ranks.rank}`,
       aspectRatio: aspect,
-      objects: [],
+      objects: [block],
       snapshot: { status: "unavailable" },
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -544,10 +570,11 @@ function Workstation() {
     await putPage(page);
     setPages((prev) => [...prev, page]);
     setActivePage(page);
-    editor.reset([]);
+    editor.reset([block]);
     setAnnotating(true);
-    setEditingTextId(null);
-  }, [aspect, editor]);
+    setTool("text");
+    setEditingTextId(block.id);
+  }, [aspect, editor, makeNoteTextBlock]);
 
   const openPage = useCallback(
     (page: Page) => {
@@ -556,6 +583,16 @@ function Workstation() {
       setAnnotating(true);
       if (page.timestamp != null) playerRef.current?.seek(page.timestamp);
       setFrozenAt(page.timestamp ?? 0);
+      // Blank notes reopen straight into in-place text editing.
+      if (page.type === "blank") {
+        const block = page.objects.find((o) => o.kind === "text");
+        if (block) {
+          setTool("text");
+          setEditingTextId(block.id);
+          return;
+        }
+      }
+      setEditingTextId(null);
     },
     [editor],
   );
@@ -637,6 +674,7 @@ function Workstation() {
             filename: req.filename,
             includeDate: req.includeDate,
             includePageNumbers: req.includePageNumbers,
+            mode: req.mode,
             resolutionWidth: 1920,
             jpegQuality: 0.92,
           },
