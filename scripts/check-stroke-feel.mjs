@@ -8,6 +8,6 @@ for (const n of [
   "startTaper: profile.startTaper",
   "endTaper: profile.endTaper",
 ]) if (!oc.includes(n)) throw new Error(`Missing profile feel integration: ${n}`);
-for (const n of ["pressureExponent?: number;","velocityResponse?: number;","startTaper?: number;","endTaper?: number;"])
+for (const n of ["pressureExponent?: number","velocityResponse?: number","startTaper?: number","endTaper?: number"])
   if (!types.includes(n)) throw new Error(`Missing Stroke field: ${n}`);
 console.log("PASS: stroke profile smoothing, streamline, pressure, velocity and taper metadata are wired.");
