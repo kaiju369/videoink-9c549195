@@ -27,6 +27,8 @@ import {
   Volume2,
   VolumeX,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -144,9 +146,27 @@ function Hotkey({ combo }: { combo?: string | undefined }) {
 }
 
 export function InkToolbar(p: ToolbarProps) {
+  if (!p.prefs.showToolbar) {
+    return (
+      <div className="pointer-events-auto">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="gap-1 rounded-full shadow-lg"
+          aria-label="Show annotation toolbar"
+          title="Show annotation toolbar"
+          onClick={() => p.setPrefs({ showToolbar: true })}
+        >
+          <Eye className="size-4" />
+          <span className="sr-only">Show toolbar</span>
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="pointer-events-auto flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-xl border border-border/70 bg-card/95 px-2 py-1.5 shadow-lg backdrop-blur md:flex-wrap md:overflow-visible">
-      {TOOL_BUTTONS.map((t) => {
+      {TOOL_BUTTONS.filter((t) => p.prefs.showShapeTools || !["line", "arrow", "shape"].includes(t.tool)).map((t) => {
         const combo = t.action ? p.keys[t.action] : undefined;
         return (
           <Button
@@ -188,7 +208,7 @@ export function InkToolbar(p: ToolbarProps) {
 
       <span className="mx-1 h-6 w-px bg-border" />
 
-      {p.tool === "shape" && (
+      {p.prefs.showShapeTools && p.tool === "shape" && (
         <Select value={p.prefs.shapeKind} onValueChange={(v) => p.setPrefs({ shapeKind: v as ShapeKind })}>
           <SelectTrigger className="h-8 w-[128px]" aria-label="Shape">
             <SelectValue />
@@ -202,6 +222,23 @@ export function InkToolbar(p: ToolbarProps) {
           </SelectContent>
         </Select>
       )}
+
+      <Button
+        size="sm"
+        variant={p.prefs.showShapeTools ? "secondary" : "ghost"}
+        className="gap-1 px-2"
+        aria-label={p.prefs.showShapeTools ? "Hide shape tools" : "Show shape tools"}
+        aria-pressed={p.prefs.showShapeTools}
+        title={p.prefs.showShapeTools ? "Hide shape, line and arrow tools" : "Show shape, line and arrow tools"}
+        onClick={() => {
+          const next = !p.prefs.showShapeTools;
+          p.setPrefs({ showShapeTools: next });
+          if (!next && ["line", "arrow", "shape"].includes(p.tool)) p.setTool("select");
+        }}
+      >
+        {p.prefs.showShapeTools ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+        <span className="sr-only">Shape tools</span>
+      </Button>
 
       <div className="flex items-center gap-1">
         {p.prefs.favoriteColors.map((c) => (
@@ -307,6 +344,17 @@ export function InkToolbar(p: ToolbarProps) {
       >
         <FileX2 className="size-4" />
         <Hotkey combo={p.keys["page.delete"]} />
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="gap-1 px-2"
+        aria-label="Hide annotation toolbar"
+        title="Hide annotation toolbar"
+        onClick={() => p.setPrefs({ showToolbar: false })}
+      >
+        <EyeOff className="size-4" />
+        <span className="sr-only">Hide toolbar</span>
       </Button>
 
       <span className="mx-1 h-6 w-px bg-border" />
@@ -425,19 +473,41 @@ export function TextEditorOverlay({
   onDone: () => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const initial = useRef(obj.text);
+  const [draft, setDraft] = useState(obj.text);
+
   useEffect(() => {
+    setDraft(obj.text);
+    initial.current = obj.text;
     ref.current?.focus();
-  }, []);
+  }, [obj.id]);
+
+  const commit = () => {
+    if (draft !== obj.text) onChange({ text: draft });
+    onDone();
+  };
+  const cancel = () => {
+    if (draft !== obj.text) onChange({ text: initial.current });
+    onDone();
+  };
+
   return (
     <textarea
       ref={ref}
-      value={obj.text}
-      onChange={(e) => onChange({ text: e.target.value })}
-      onBlur={onDone}
+      ref={ref}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
+          e.preventDefault();
           e.stopPropagation();
-          onDone();
+          cancel();
+        }
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          commit();
         }
       }}
       className="absolute resize-none rounded border border-ring/70 bg-background/80 p-1 outline-none"
@@ -456,6 +526,8 @@ export function TextEditorOverlay({
         lineHeight: 1.28,
       }}
       placeholder="Type…"
+      aria-label="Edit note"
+      data-videoink-inline-editor="true"
     />
   );
 }
@@ -496,6 +568,17 @@ const FILTERS = [
   "recent",
 ] as const;
 type Filter = (typeof FILTERS)[number];
+
+  const FILTER_LABELS: Record<Filter, string> = {
+    all: "All",
+    current: "This video",
+    annotations: "Video frames",
+    blank: "Blank notes",
+    custom: "Custom",
+    snapshot: "Captured",
+    noSnapshot: "No capture",
+    recent: "Recent",
+  };
 
 export function PageLibrary(p: LibraryProps) {
   const [query, setQuery] = useState("");
@@ -561,6 +644,9 @@ export function PageLibrary(p: LibraryProps) {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center gap-2">
+        <span className="text-[11px] text-muted-foreground" aria-live="polite">
+          {p.tool === "move" ? "Move mode — drag selected objects" : "Select a tool"}
+        </span>
         <h2 className="font-display text-lg italic tracking-tight">Pages</h2>
         <span className="text-xs text-muted-foreground">{p.pages.length} local</span>
         <Button size="sm" variant="secondary" className="ml-auto" onClick={p.onAddBlank}>
@@ -576,6 +662,23 @@ export function PageLibrary(p: LibraryProps) {
         className="h-8"
       />
 
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span>{items.length} shown</span>
+        {(query || filter !== "all") && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => {
+              setQuery("");
+              setFilter("all");
+            }}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
       <div className="flex flex-wrap gap-1">
         {FILTERS.map((f) => (
           <Button
@@ -585,7 +688,7 @@ export function PageLibrary(p: LibraryProps) {
             className="h-7 px-2 text-xs"
             onClick={() => setFilter(f)}
           >
-            {f}
+            {FILTER_LABELS[f]}
           </Button>
         ))}
       </div>
@@ -666,8 +769,10 @@ export function PageLibrary(p: LibraryProps) {
       <div className={cn("-mr-1 flex-1 overflow-y-auto pr-1", gridClass)}>
         {items.length === 0 && (
           <p className="col-span-full rounded-lg border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
-            No pages yet. Press <kbd className="rounded bg-muted px-1">A</kbd> while watching to
-            freeze a frame, or add a blank page.
+            {p.pages.length === 0
+              ? <>No pages yet. Press <kbd className="rounded bg-muted px-1">A</kbd> while watching to
+                freeze a frame, or add a blank note.</>
+              : <>No pages match the current search/filter.</>}
           </p>
         )}
         {items.map((a, i) => (
@@ -1088,6 +1193,24 @@ export function SettingsDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="rounded-md border border-border/70 p-2">
+              <Label className="text-xs">Stroke response</Label>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                {(() => {
+                  const profile = PEN_PROFILE_LIST.find((x) => x.id === prefs.penProfile) ?? PEN_PROFILES.ballpoint;
+                  return (
+                    <>
+                      <span>Thinning <b className="text-foreground">{profile.thinning.toFixed(2)}</b></span>
+                      <span>Smoothing <b className="text-foreground">{profile.smoothing.toFixed(2)}</b></span>
+                      <span>Streamline <b className="text-foreground">{profile.streamline.toFixed(2)}</b></span>
+                      <span>Velocity <b className="text-foreground">{profile.velocityResponse.toFixed(2)}</b></span>
+                      <span>Pressure curve <b className="text-foreground">{profile.pressureExponent.toFixed(2)}</b></span>
+                      <span>Taper <b className="text-foreground">{Math.max(profile.startTaper, profile.endTaper).toFixed(2)}</b></span>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
             <div>
               <Label className="text-xs">Eraser mode</Label>

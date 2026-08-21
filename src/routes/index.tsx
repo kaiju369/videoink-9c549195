@@ -1,3 +1,4 @@
+import type { SnapshotInfo } from "@/lib/videoink/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -7,6 +8,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Settings2,
+  SkipBack,
+  SkipForward,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,6 +42,7 @@ import {
   loadRecovery,
   nextRanks,
   putPage,
+  putPageSafely,
   putPages,
   saveRecovery,
 } from "@/lib/videoink/db";
@@ -232,8 +236,10 @@ function Workstation() {
     const t = setInterval(() => {
       const p = playerRef.current;
       if (!p) return;
-      setCurrent(p.getCurrentTime());
-      setPlaying(p.isPlaying());
+      const nextCurrent = p.getCurrentTime();
+      const nextPlaying = p.isPlaying();
+      setCurrent((prev) => (Math.abs(prev - nextCurrent) >= 0.01 ? nextCurrent : prev));
+      setPlaying((prev) => (prev === nextPlaying ? prev : nextPlaying));
       const d = p.getDuration();
       if (d && Number.isFinite(d)) setDuration((prev) => (Math.abs(prev - d) > 0.5 ? d : prev));
     }, 250);
@@ -312,9 +318,8 @@ function Workstation() {
 
   /* --------------------------- recovery ----------------------------- */
   useEffect(() => {
-    if (!annotating) return;
-    const t = setInterval(() => {
-      if (!editor.objects.length) return;
+    if (!annotating || !editor.objects.length) return;
+    const timer = window.setTimeout(() => {
       void saveRecovery({
         id: "active",
         pageId: activePage?.id,
@@ -328,11 +333,62 @@ function Workstation() {
         objects: editor.objects,
         updatedAt: Date.now(),
       });
-    }, 4000);
-    return () => clearInterval(t);
-  }, [annotating, editor.objects, activePage, videoTitle, source, frozenAt, duration, aspect]);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [annotating, editor.objects, activePage?.id, videoTitle, source, frozenAt, duration, aspect]);
 
   /* ---------------------------- actions ----------------------------- */
+  const openLinkedPage = useCallback((page: Page) => {
+    const linkedSource = page.sourceKey && sourceKey(source) === page.sourceKey;
+    const timestamp = page.snapshot?.timestamp ?? page.timestamp;
+    if (linkedSource && timestamp != null && playerRef.current) {
+      playerRef.current.seek(timestamp);
+      setFrozenAt(timestamp);
+      setCurrent(timestamp);
+    }
+    setActivePage(page);
+    editor.reset(page.objects);
+    setAnnotating(true);
+    setEditingTextId(null);
+  }, [source, editor]);
+
+  const framePages = useMemo(
+    () =>
+      pages
+        .filter((page) =>
+          page.type === "video" &&
+          page.timestamp != null &&
+          sourceKey(source) != null &&
+          page.sourceKey === sourceKey(source),
+        )
+        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)),
+    [pages, source],
+  );
+
+  const navigateSavedFrame = useCallback(
+    (direction: -1 | 1) => {
+      if (!framePages.length) {
+        toast.info("No saved frames for this video");
+        return;
+      }
+      const now = activePage?.timestamp ?? frozenAt ?? current;
+      const epsilon = 0.001;
+      const index =
+        direction < 0
+          ? framePages.reduce((best, page, i) => (page.timestamp! < now - epsilon ? i : best), -1)
+          : framePages.findIndex((page) => page.timestamp! > now + epsilon);
+
+      const targetIndex =
+        index >= 0
+          ? index
+          : direction < 0
+            ? framePages.length - 1
+            : 0;
+      openLinkedPage(framePages[targetIndex]);
+    },
+    [framePages, activePage, frozenAt, current, openLinkedPage],
+  );
+
   const flashLabel = (label: string) => {
     setFlash(label);
     setTimeout(() => setFlash(null), 900);
@@ -361,28 +417,54 @@ function Workstation() {
       toast.error("Nothing to save yet");
       return;
     }
-    const ranks = activePage
-      ? { rank: activePage.createdRank, order: activePage.currentOrder }
+    const normalizedTimestamp =
+      source && Number.isFinite(frozenAt) ? Math.max(0, frozenAt) : undefined;
+    // Re-saving the same video instant should update the existing frame page,
+    // not create a second indistinguishable library item.
+    const duplicateFrame =
+      !activePage && source && normalizedTimestamp != null
+        ? pages.find(
+            (p) =>
+              p.type === "video" &&
+              p.sourceKey === sourceKey(source) &&
+              p.timestamp != null &&
+              Math.abs(p.timestamp - normalizedTimestamp) < 0.05,
+          ) ?? null
+        : null;
+    const targetPage = activePage ?? duplicateFrame;
+    const ranks = targetPage
+      ? { rank: targetPage.createdRank, order: targetPage.currentOrder }
       : await nextRanks();
-    const snapshot = activePage?.snapshot?.dataUrl
+    const snapshot = targetPage?.snapshot?.dataUrl
       ? activePage.snapshot
       : await captureSnapshot({
           rect: { left: 0, top: 0, width: rect.width || 1280, height: rect.height || 720 },
           objects,
           videoEl: playerRef.current?.getVideoElement() ?? null,
           youtubeVideoId: source?.type === "youtube" ? source.videoId : undefined,
+          sourceKey: sourceKey(source),
+          timestamp: source ? normalizedTimestamp : undefined,
           viewportRect: stageViewportRect(stageRef.current, rect),
           session: captureRef.current,
         });
 
 
+    const snapshotWithLink: SnapshotInfo = source
+      ? { ...snapshot, timestamp: normalizedTimestamp, sourceKey: sourceKey(source) }
+      : snapshot;
+
     const page: Page = {
-      id: activePage?.id ?? uid(),
+      id: targetPage?.id ?? uid(),
       schemaVersion: SCHEMA_VERSION,
-      type: activePage?.type ?? (source ? "video" : "blank"),
+      type: targetPage?.type ?? (source ? "video" : "blank"),
       createdRank: ranks.rank,
       currentOrder: ranks.order,
-      title: activePage?.title ?? `${videoTitle} @ ${formatTime(frozenAt)}`,
+      title:
+        targetPage?.title ??
+        (source
+          ? `${videoTitle} @ ${formatTime(normalizedTimestamp ?? frozenAt)}`
+          : (objects.find((o) => o.kind === "text" && o.text.trim()) as TextObject | undefined)?.text.trim().slice(0, 80) ||
+            "Blank note"),
       sourceType: source?.type,
       sourceKey: sourceKey(source),
       youtubeVideoId: source?.type === "youtube" ? source.videoId : undefined,
@@ -391,13 +473,16 @@ function Workstation() {
       duration,
       aspectRatio: aspect,
       objects,
-      snapshot,
-      createdAt: activePage?.createdAt ?? Date.now(),
+      snapshot: snapshotWithLink,
+      createdAt: targetPage?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
     };
     page.thumbnail = await makeThumbnail(page);
     await putPage(page);
-    setPages(await listPages());
+    setPages((prev) => {
+      const exists = prev.some((p) => p.id === page.id);
+      return exists ? prev.map((p) => (p.id === page.id ? page : p)) : [...prev, page];
+    });
     editor.markSaved();
     editor.reset([]);
     setActivePage(null);
@@ -410,8 +495,9 @@ function Workstation() {
 
   const deleteCurrentPage = useCallback(async () => {
     if (activePage) {
-      await deletePage(activePage.id);
-      setPages(await listPages());
+      const deletedId = activePage.id;
+      await deletePage(deletedId);
+      setPages((prev) => prev.filter((page) => page.id !== deletedId));
       toast.success("Page deleted");
     }
     setActivePage(null);
@@ -422,6 +508,23 @@ function Workstation() {
   }, [activePage, editor]);
 
 
+  /* ---------------------- blank-page autosave ---------------------- */
+  useEffect(() => {
+    if (!annotating || activePage?.type !== "blank" || !editor.dirty) return;
+    const timer = window.setTimeout(async () => {
+      const updated: Page = {
+        ...activePage,
+        objects: editor.objects,
+        updatedAt: Date.now(),
+      };
+      await putPage(updated);
+      setActivePage(updated);
+      setPages((prev) => prev.map((page) => (page.id === updated.id ? updated : page)));
+      editor.markSaved();
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [annotating, activePage, editor.objects, editor.dirty]);
+
   const addBlankPage = useCallback(async () => {
     const ranks = await nextRanks();
     const page: Page = {
@@ -430,7 +533,7 @@ function Workstation() {
       type: "blank",
       createdRank: ranks.rank,
       currentOrder: ranks.order,
-      title: `Blank page ${ranks.rank}`,
+      title: `Blank note ${ranks.rank}`,
       aspectRatio: aspect,
       objects: [],
       snapshot: { status: "unavailable" },
@@ -438,10 +541,11 @@ function Workstation() {
       updatedAt: Date.now(),
     };
     await putPage(page);
-    setPages(await listPages());
+    setPages((prev) => [...prev, page]);
     setActivePage(page);
     editor.reset([]);
     setAnnotating(true);
+    setEditingTextId(null);
   }, [aspect, editor]);
 
   const openPage = useCallback(
@@ -457,7 +561,8 @@ function Workstation() {
 
   const deletePages = useCallback(async (ids: string[]) => {
     for (const id of ids) await deletePage(id);
-    setPages(await listPages());
+    const deleted = new Set(ids);
+    setPages((prev) => prev.filter((page) => !deleted.has(page.id)));
     setLibrarySelection([]);
     toast.success(`${ids.length} page${ids.length === 1 ? "" : "s"} deleted`);
   }, []);
@@ -481,7 +586,7 @@ function Workstation() {
         ranks = { rank: ranks.rank + 1, order: ranks.order + 1 };
       }
       await putPages(copies);
-      setPages(await listPages());
+      setPages((prev) => [...prev, ...copies]);
     },
     [pages],
   );
@@ -495,7 +600,10 @@ function Workstation() {
         })
         .filter((p): p is Page => p !== null);
       await putPages(updated);
-      setPages(await listPages());
+      setPages((prev) => {
+        const byId = new Map(updated.map((page) => [page.id, page]));
+        return prev.map((page) => byId.get(page.id) ?? page);
+      });
       setPrefs({ librarySort: "manual" });
     },
     [pages, setPrefs],
@@ -545,11 +653,63 @@ function Workstation() {
     [activePage, pages, librarySelection],
   );
 
+  /* ----------------------- live page autosave ----------------------- */
+  // Blank pages are real documents, not temporary annotation sessions.
+  // Persist their edits automatically while the user is working so leaving
+  // the page does not require an explicit Save click.
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveSeqRef = useRef(0);
+  useEffect(() => {
+    if (!activePage || activePage.type !== "blank" || !annotating || !editor.dirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    const seq = ++autosaveSeqRef.current;
+    autosaveTimerRef.current = setTimeout(async () => {
+      const objects = editor.objects;
+      const updated: Page = {
+        ...activePage,
+        objects,
+        updatedAt: Date.now(),
+      };
+      try {
+        const saved = await putPageSafely(updated);
+        // Do not overwrite a newer local edit with an older async write.
+        if (seq === autosaveSeqRef.current) {
+          setActivePage(saved);
+          setPages((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+          editor.markSaved();
+        }
+      } catch {
+        toast.error("Could not autosave this blank page");
+      }
+    }, 650);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [activePage, annotating, editor.dirty, editor.objects, editor, setPages]);
+
   /* --------------------------- shortcuts ---------------------------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const isEditable = !!t && (
+        t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.isContentEditable ||
+        !!t.closest("[contenteditable=\"true\"]")
+      );
+      // Never let global shortcuts hijack typing, browser text editing,
+      // or IME composition.
+      if (isEditable || e.isComposing || e.key === "Process" || e.key === "Dead") return;
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        navigateSavedFrame(-1);
+        return;
+      }
+      if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        navigateSavedFrame(1);
+        return;
+      }
       const action = actionForCombo(keys, eventCombo(e));
       if (!action) return;
       e.preventDefault();
@@ -651,6 +811,8 @@ function Workstation() {
           setSettingsOpen(true);
           break;
         case "cancel":
+          e.preventDefault();
+          e.stopPropagation();
           if (editingTextId) setEditingTextId(null);
           else cancelAnnotation();
           break;
@@ -681,7 +843,7 @@ function Workstation() {
     deleteCurrentPage,
     toggleCapture,
     setPrefs,
-  ]);
+  , navigateSavedFrame]);
 
 
   /* ----------------------------- source ----------------------------- */
@@ -809,7 +971,7 @@ function Workstation() {
           <div ref={stageRef} className="relative min-h-0 flex-1 bg-black/60">
             <Player
               ref={playerRef}
-              source={source}
+              source={activePage?.type === "blank" ? null : source}
               fit={rect}
               onReady={(info) => {
                 setDuration(info.duration);
@@ -829,6 +991,7 @@ function Workstation() {
               enabled={annotating}
               editingTextId={editingTextId}
               onEditText={setEditingTextId}
+              onToolChange={setTool}
               onRecognized={flashLabel}
             />
             {editingText && (
@@ -852,7 +1015,7 @@ function Workstation() {
               <ToolIndicator tool={tool} prefs={prefs} keys={keys} flash={flash} />
               {annotating && (
                 <span className="rounded bg-background/85 px-2 py-1 text-[11px]">
-                  Frozen at {formatTime(frozenAt)}
+                  {source ? `Frozen at ${formatTime(frozenAt)}` : "Blank note — click Text to type directly"}
                 </span>
               )}
             </div>
@@ -888,6 +1051,31 @@ function Workstation() {
 
           {source && (
             <div className="border-t border-border/70 p-2">
+              <div className="mb-2 flex items-center justify-end gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Previous saved frame"
+                  aria-label="Previous saved frame"
+                  disabled={annotating || !framePages.length}
+                  onClick={() => navigateSavedFrame(-1)}
+                >
+                  <SkipBack className="h-4 w-4" />
+                </Button>
+                <span className="px-2 text-xs text-muted-foreground">
+                  {framePages.length ? `${framePages.length} saved frame${framePages.length === 1 ? "" : "s"}` : "No saved frames"}
+                </span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Next saved frame"
+                  aria-label="Next saved frame"
+                  disabled={annotating || !framePages.length}
+                  onClick={() => navigateSavedFrame(1)}
+                >
+                  <SkipForward className="h-4 w-4" />
+                </Button>
+              </div>
               <VideoControls
                 playing={playing}
                 current={current}
@@ -974,8 +1162,8 @@ function Workstation() {
               onView={(v) => setPrefs({ libraryView: v })}
               onSort={(s) => setPrefs({ librarySort: s })}
               onSelectionChange={setLibrarySelection}
-              onOpen={openPage}
-              onEnlarge={openPage}
+              onOpen={openLinkedPage}
+              onEnlarge={openLinkedPage}
               onDelete={(ids) => void deletePages(ids)}
               onDuplicate={(ids) => void duplicatePages(ids)}
               onReorder={(ids) => void reorderPages(ids)}

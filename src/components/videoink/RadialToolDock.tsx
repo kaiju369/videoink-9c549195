@@ -112,6 +112,13 @@ export function RadialToolDock(p: RadialToolDockProps) {
   const px = Math.round(pos.x * viewport.w);
   const py = Math.round(pos.y * viewport.h);
 
+  const visiblePetals = PETALS.filter(
+    (petal) =>
+      p.prefs.showShapeTools ||
+      !petal.tool ||
+      !["line", "arrow", "shape"].includes(petal.tool),
+  );
+
   // Petals fan out away from the nearest screen edges so they never overflow.
   const openLeft = px > viewport.w / 2;
   const openUp = py > viewport.h / 2;
@@ -123,7 +130,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
    * many tools the fan holds or how small the screen is.
    */
   const { petals } = useMemo(() => {
-    const n = PETALS.length;
+    const n = visiblePetals.length;
     const ITEM = 44;
     const GAP = 12;
     const sweep = 104;
@@ -145,12 +152,12 @@ export function RadialToolDock(p: RadialToolDockProps) {
       items.forEach((gi, i) => {
         const t = m === 1 ? 0.5 : i / (m - 1);
         const ang = ((baseDeg - sweep / 2 + sweep * t) * Math.PI) / 180;
-        out[gi] = { ...PETALS[gi]!, dx: Math.cos(ang) * r, dy: Math.sin(ang) * r };
+        out[gi] = { ...visiblePetals[gi]!, dx: Math.cos(ang) * r, dy: Math.sin(ang) * r };
       });
       ring++;
     }
     return { petals: out, maxRadius: outer };
-  }, [openLeft, openUp, radius]);
+  }, [openLeft, openUp, radius, visiblePetals]);
 
 
   const persist = useCallback(
@@ -256,6 +263,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
         <div
           id={menuId}
           role="menu"
+          role="menu"
           aria-label="Quick tools"
           onKeyDown={onMenuKeyDown}
           className={cn("absolute inset-0", !open && "pointer-events-none")}
@@ -296,7 +304,7 @@ export function RadialToolDock(p: RadialToolDockProps) {
                   opacity: open ? 1 : 0,
                 }}
               >
-                <petal.icon className="size-5" />
+                <petal.icon className="size-5" aria-hidden="true" focusable="false" />
               </button>
             );
           })}

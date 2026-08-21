@@ -23,7 +23,10 @@ interface ObjectBase { id: string; z: number; createdAt: number; }
 export interface Stroke extends ObjectBase {
   kind: "stroke"; tool: "pen" | "highlighter"; color: string; opacity: number; size: number;
   pressureMode: "real" | "simulated"; thinning?: number; smoothing?: number;
-  profile?: string; points: InkPoint[];
+  profile?: string;
+  pressureExponent?: number; velocityResponse?: number;
+  startTaper?: number; endTaper?: number;
+  points: InkPoint[];
 }
 
 export interface ShapeObject extends ObjectBase {
@@ -41,6 +44,10 @@ export type PageObject = Stroke | ShapeObject | TextObject;
 
 export interface SnapshotInfo {
   status: SnapshotStatus;
+  /** Video position represented by this captured frame, in seconds. */
+  timestamp?: number;
+  /** Stable source identity so a frame can be reopened against the same video. */
+  sourceKey?: string;
   /** Clean frame/reference pixels only. Vector annotations are stored separately. */
   dataUrl?: string;
   width?: number;

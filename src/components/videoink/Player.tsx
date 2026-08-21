@@ -98,6 +98,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [aspect, setAspect] = useState(16 / 9);
+  const [urlCapability, setUrlCapability] = useState<"checking" | "playable" | "blocked" | null>(null);
   const readyCb = useRef(onReady);
   readyCb.current = onReady;
   const stateCb = useRef(onPlayStateChange);
@@ -106,6 +107,10 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
   errorCb.current = onError;
 
   useEffect(() => {
+    // Reset source capability immediately so the UI cannot show the previous
+    // URL as playable while a new media source is loading.
+    if (source?.type === "url") setUrlCapability("checking");
+    else setUrlCapability(null);
     if (!source || source.type !== "youtube") {
       ytRef.current?.destroy();
       ytRef.current = null;
@@ -192,7 +197,11 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       seek: (t) => {
         const safe = Number.isFinite(t) ? Math.max(0, t) : 0;
         if (ytRef.current) ytRef.current.seekTo(safe, true);
-        else if (videoRef.current) videoRef.current.currentTime = safe;
+        else if (videoRef.current) {
+          const duration = videoRef.current.duration;
+          videoRef.current.currentTime =
+            Number.isFinite(duration) && duration > 0 ? Math.min(safe, duration) : safe;
+        }
       },
       stepFrame: (dir, fps = 30) => {
         const step = 1 / Math.max(1, fps);
@@ -319,16 +328,21 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       src={source.url}
       playsInline
       preload="metadata"
+      key={`${source.type}:${source.url}`}
       // anonymous CORS keeps remote frames drawable on a canvas when the host allows it
       {...(source.type === "url" ? { crossOrigin: "anonymous" as const } : {})}
       className="absolute inset-0 h-full w-full object-contain"
-      onError={() =>
-        errorCb.current?.(
-          source.type === "url"
-            ? "That video URL could not be loaded (wrong link, or the host blocks playback)"
-            : "That video file could not be played",
-        )
-      }
+      onError={() => {
+        if (source.type === "url") {
+          setUrlCapability("blocked");
+          setError("That video URL could not be loaded. The host may block cross-origin playback, require authentication, or the link may not be a media URL.");
+        } else {
+          setError("Video failed to load");
+        }
+      }}
+      onCanPlay={() => {
+        if (source.type === "url") setUrlCapability("playable");
+      }}
 
       onLoadedMetadata={(e) => {
         const v = e.currentTarget;
