@@ -36,6 +36,27 @@ export function parseYouTubeId(input: string): string | null {
 }
 
 /** Start offset encoded in a YouTube URL (`?t=1h2m3s` / `?start=90`), in seconds. */
+
+
+export type VideoLinkKind = "youtube" | "direct-media" | "unknown";
+
+export function classifyVideoLink(input: string): VideoLinkKind {
+  const raw = input.trim();
+  if (!raw) return "unknown";
+  if (parseYouTubeId(raw)) return "youtube";
+  if (!isSafeVideoUrl(raw)) return "unknown";
+  try {
+    const u = new URL(raw.startsWith("http") || raw.startsWith("blob:") ? raw : `https://${raw}`);
+    const path = u.pathname.toLowerCase();
+    if (/\.(mp4|webm|ogg|ogv|m4v|mov)(?:$|\?)/.test(path)) return "direct-media";
+    // Extension-less media URLs are still valid <video> sources; let the
+    // browser determine support rather than rejecting them client-side.
+    return "direct-media";
+  } catch {
+    return "unknown";
+  }
+}
+
 export function parseYouTubeStart(input: string): number {
   try {
     const url = new URL(input.trim().startsWith("http") ? input.trim() : `https://${input.trim()}`);

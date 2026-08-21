@@ -188,11 +188,93 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+export type VideoCaptureCapability =
+  | "direct-html5"
+  | "screen-capture"
+  | "youtube-reference"
+  | "unavailable";
+
+export interface VideoCaptureCapabilities {
+  directHtml5: boolean;
+  screenCapture: boolean;
+  youtubeReference: boolean;
+}
+
+export function getVideoCaptureCapabilities(
+  video: HTMLVideoElement | null,
+  youtubeVideoId: string | undefined,
+): VideoCaptureCapabilities {
+  return {
+    directHtml5: canCaptureDecodedVideoFrame(video),
+    screenCapture: ScreenCaptureSession.supported,
+    youtubeReference: !!youtubeVideoId,
+  };
+}
+
+
+
+export interface CaptureDecision {
+  method: VideoCaptureCapability;
+  actualFramePossible: boolean;
+  reason: string;
+}
+
+export function explainVideoCapture(
+  video: HTMLVideoElement | null,
+  youtubeVideoId?: string,
+): CaptureDecision {
+  const capabilities = getVideoCaptureCapabilities(video, youtubeVideoId);
+  if (capabilities.directHtml5) {
+    return {
+      method: "direct-html5",
+      actualFramePossible: true,
+      reason: "The browser exposes decoded video pixels, so the frame can be captured directly without screen capture.",
+    };
+  }
+  if (capabilities.screenCapture) {
+    return {
+      method: "screen-capture",
+      actualFramePossible: true,
+      reason: "Direct media pixels are unavailable; authorised display capture can capture the visible video surface.",
+    };
+  }
+  if (capabilities.youtubeReference) {
+    return {
+      method: "youtube-reference",
+      actualFramePossible: false,
+      reason: "Only a YouTube thumbnail/reference image is available; this is not the exact playback frame.",
+    };
+  }
+  return {
+    method: "unavailable",
+    actualFramePossible: false,
+    reason: "No supported frame-capture path is currently available.",
+  };
+}
+
+export function preferredVideoCaptureMethod(
+  capabilities: VideoCaptureCapabilities,
+): VideoCaptureCapability {
+  if (capabilities.directHtml5) return "direct-html5";
+  if (capabilities.screenCapture) return "screen-capture";
+  if (capabilities.youtubeReference) return "youtube-reference";
+  return "unavailable";
+}
+
+export function canCaptureDecodedVideoFrame(video: HTMLVideoElement | null): boolean {
+  return !!video &&
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0;
+}
+
 export interface CaptureContext {
   rect: ContentRect;
   objects: PageObject[];
   videoEl: HTMLVideoElement | null;
   youtubeVideoId?: string | undefined;
+  sourceKey?: string | undefined;
+  timestamp?: number | undefined;
   viewportRect: DOMRect | null;
   session: ScreenCaptureSession | null;
   hideOverlay?: (() => Promise<void> | void) | undefined;
@@ -201,6 +283,36 @@ export interface CaptureContext {
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Wait until the decoded video frame is current before drawing it. This avoids
+ * capturing the previous decoded frame after a seek. requestVideoFrameCallback
+ * is preferred because it is tied to the media decoder rather than the UI
+ * refresh loop; the animation-frame fallback keeps older browsers working.
+ */
+async function waitForDecodedVideoFrame(video: HTMLVideoElement): Promise<void> {
+  type VideoWithRVFC = HTMLVideoElement & {
+    requestVideoFrameCallback?: (cb: (now: number, metadata: VideoFrameCallbackMetadata) => void) => number;
+  };
+  const v = video as VideoWithRVFC;
+  if (typeof v.requestVideoFrameCallback === "function") {
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      v.requestVideoFrameCallback(() => finish());
+      // A paused frame may already be decoded and never advance. Do not hang.
+      window.setTimeout(finish, 120);
+    });
+  } else {
+    await nextFrame();
+    await nextFrame();
+  }
 }
 
 /**
@@ -230,11 +342,15 @@ function hideCanvasOverlays(viewportRect: DOMRect): () => void {
 }
 
 export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotInfo> {
-  const { rect, videoEl, youtubeVideoId, viewportRect, session, hideOverlay, restoreOverlay } = ctxIn;
+  const { rect, videoEl, youtubeVideoId, sourceKey, timestamp, viewportRect, session, hideOverlay, restoreOverlay } = ctxIn;
 
-  if (videoEl && videoEl.videoWidth) {
+  if (videoEl && videoEl.videoWidth && videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
     try {
+      await waitForDecodedVideoFrame(videoEl);
       const { canvas, ctx } = makeCanvas(videoEl.videoWidth, videoEl.videoHeight);
+      // Draw only the decoded media surface. No browser chrome, player UI,
+      // annotations, controls, or surrounding window pixels can enter this
+      // canvas.
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
       const dataUrl = encodeOnce(canvas);
       if (dataUrl) {
@@ -244,6 +360,8 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
           width: canvas.width,
           height: canvas.height,
           captureMethod: "html5-video",
+          timestamp,
+          sourceKey,
           inkBaked: false,
         };
       }
@@ -274,6 +392,8 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
           width: grabbed.width,
           height: grabbed.height,
           captureMethod: "screen-capture",
+          timestamp,
+          sourceKey,
           inkBaked: false,
         };
       }
@@ -299,6 +419,8 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
           width: canvas.width,
           height: canvas.height,
           captureMethod: "youtube-thumbnail",
+          timestamp,
+          sourceKey,
           inkBaked: false,
         };
       }
@@ -326,4 +448,28 @@ export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotIn
     /* ignore */
   }
   return { status: "failed", captureMethod: "none" };
+}
+
+
+/**
+ * Export a previously captured clean video frame as an image.
+ * This operates on the stored frame data, never on the DOM/screen.
+ */
+export function downloadCleanFrame(
+  snapshot: SnapshotInfo,
+  filename = "videoink-frame",
+): boolean {
+  if (!snapshot.dataUrl || snapshot.status !== "captured") return false;
+  const a = document.createElement("a");
+  a.href = snapshot.dataUrl;
+  a.download = `${filename.replace(/[^a-z0-9._-]+/gi, "_")}.png`;
+  a.click();
+  return true;
+}
+
+export function captureStatusLabel(decision: CaptureDecision): string {
+  if (decision.method === "direct-html5") return "Direct frame capture";
+  if (decision.method === "screen-capture") return "Screen capture fallback";
+  if (decision.method === "youtube-reference") return "YouTube thumbnail fallback (not exact frame)";
+  return "Frame capture unavailable";
 }

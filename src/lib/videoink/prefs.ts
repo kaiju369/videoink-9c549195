@@ -74,13 +74,13 @@ export const PEN_PROFILES: Record<PenProfileId, PenProfile> = {
   ballpoint: {
     id: "ballpoint",
     label: "Ballpoint",
-    widthScale: 1,
+    widthScale: 1.00,
     opacity: 1,
-    thinning: 0.32,
-    smoothing: 0.55,
-    streamline: 0.32,
-    pressureExponent: 1,
-    velocityResponse: 0.1,
+    thinning: 0.28,
+    smoothing: 0.48,
+    streamline: 0.24,
+    pressureExponent: 1.00,
+    velocityResponse: 0.08,
     startTaper: 0,
     endTaper: 0,
     cap: true,
@@ -89,27 +89,27 @@ export const PEN_PROFILES: Record<PenProfileId, PenProfile> = {
   pencil: {
     id: "pencil",
     label: "Pencil",
-    widthScale: 0.95,
-    opacity: 0.9,
-    thinning: 0.55,
-    smoothing: 0.42,
-    streamline: 0.22,
-    pressureExponent: 0.85,
-    velocityResponse: 0.18,
+    widthScale: 0.90,
+    opacity: 0.82,
+    thinning: 0.48,
+    smoothing: 0.32,
+    streamline: 0.16,
+    pressureExponent: 0.78,
+    velocityResponse: 0.22,
     startTaper: 0,
     endTaper: 0,
     cap: true,
-    grain: 0.35,
+    grain: 0.48,
   },
   marker: {
     id: "marker",
     label: "Marker",
-    widthScale: 1.6,
+    widthScale: 1.55,
     opacity: 1,
-    thinning: 0.08,
-    smoothing: 0.62,
-    streamline: 0.4,
-    pressureExponent: 1,
+    thinning: 0.05,
+    smoothing: 0.68,
+    streamline: 0.48,
+    pressureExponent: 1.05,
     velocityResponse: 0,
     startTaper: 0,
     endTaper: 0,
@@ -119,41 +119,41 @@ export const PEN_PROFILES: Record<PenProfileId, PenProfile> = {
   fountain: {
     id: "fountain",
     label: "Fountain pen",
-    widthScale: 1.15,
+    widthScale: 1.10,
     opacity: 1,
-    thinning: 0.72,
-    smoothing: 0.6,
-    streamline: 0.3,
-    pressureExponent: 0.8,
-    velocityResponse: 0.35,
-    startTaper: 0.35,
-    endTaper: 0.55,
+    thinning: 0.68,
+    smoothing: 0.52,
+    streamline: 0.24,
+    pressureExponent: 0.78,
+    velocityResponse: 0.28,
+    startTaper: 0.28,
+    endTaper: 0.62,
     cap: true,
     grain: 0,
   },
   brush: {
     id: "brush",
     label: "Brush",
-    widthScale: 1.9,
+    widthScale: 1.75,
     opacity: 1,
-    thinning: 0.85,
-    smoothing: 0.7,
-    streamline: 0.45,
-    pressureExponent: 0.7,
-    velocityResponse: 0.5,
-    startTaper: 0.5,
-    endTaper: 0.75,
+    thinning: 0.78,
+    smoothing: 0.62,
+    streamline: 0.38,
+    pressureExponent: 0.68,
+    velocityResponse: 0.42,
+    startTaper: 0.42,
+    endTaper: 0.82,
     cap: true,
     grain: 0,
   },
   highlighter: {
     id: "highlighter",
     label: "Highlighter",
-    widthScale: 3.2,
-    opacity: 0.35,
+    widthScale: 3.0,
+    opacity: 0.32,
     thinning: 0,
-    smoothing: 0.62,
-    streamline: 0.32,
+    smoothing: 0.58,
+    streamline: 0.28,
     pressureExponent: 1,
     velocityResponse: 0,
     startTaper: 0,
@@ -164,12 +164,12 @@ export const PEN_PROFILES: Record<PenProfileId, PenProfile> = {
   technical: {
     id: "technical",
     label: "Technical pen",
-    widthScale: 0.8,
+    widthScale: 0.78,
     opacity: 1,
     thinning: 0,
-    smoothing: 0.5,
-    streamline: 0.5,
-    pressureExponent: 1,
+    smoothing: 0.44,
+    streamline: 0.56,
+    pressureExponent: 1.0,
     velocityResponse: 0,
     startTaper: 0,
     endTaper: 0,
@@ -201,6 +201,10 @@ export interface Prefs {
   highlighterOpacity: number;
   shapeSize: number;
   shapeKind: ShapeKind;
+  /** Whether shape/line/arrow tools are shown in the main toolbar. */
+  showShapeTools: boolean;
+  /** Whether the main annotation toolbar is visible. */
+  showToolbar: boolean;
   lineStyle: LineStyle;
   startCap: CapStyle;
   endCap: CapStyle;
@@ -266,6 +270,8 @@ export const DEFAULT_PREFS: Prefs = {
   highlighterOpacity: 0.35,
   shapeSize: 0.005,
   shapeKind: "rect",
+  showShapeTools: true,
+  showToolbar: true,
   lineStyle: "solid",
   startCap: "none",
   endCap: "none",
@@ -406,11 +412,26 @@ export function pushRecentColor(list: string[], color: string): string[] {
 }
 
 
-export function savePrefs(p: Prefs) {
+export function savePrefs(p: Prefs): boolean {
+  if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(KEY, JSON.stringify(p));
+    return true;
   } catch {
-    /* ignore */
+    // Preferences are non-critical; the editor must continue working even when
+    // storage is disabled, private-mode restricted, or quota-limited.
+    return false;
+  }
+}
+
+/** Remove only VideoInk preferences; used by recovery/reset flows. */
+export function clearPrefs(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.removeItem(KEY);
+    return true;
+  } catch {
+    return false;
   }
 }
 

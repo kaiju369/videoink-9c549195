@@ -179,13 +179,15 @@ export function velocityPressure(points: InkPoint[], response = 0.3): InkPoint[]
     }
     return n ? sum / n : 0;
   });
-  const maxSpeed = Math.max(...smoothed, 1e-6);
+  const sorted = smoothed.slice().sort((a, b) => a - b);
+  const percentileIndex = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.92));
+  const referenceSpeed = Math.max(sorted[percentileIndex] ?? 0, 1e-6);
   return points.map((p, i) => {
-    const norm = Math.min(1, smoothed[i]! / maxSpeed);
+    const norm = Math.min(1, smoothed[i]! / referenceSpeed);
     // slower (norm near 0) -> pressure boosted toward 1; faster -> thinner.
     const synth = 1 - norm;
     const pressure = p.pressure * (1 - response) + synth * response;
-    return { ...p, pressure: Math.min(1, Math.max(0.05, pressure)) };
+    return { ...p, pressure: Math.min(1, Math.max(0.08, pressure)) };
   });
 }
 

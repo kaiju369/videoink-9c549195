@@ -48,7 +48,11 @@ export interface RenderMetadata {
   pageNumber?: string | undefined;
 }
 
+export type RenderMode = "page" | "clean-frame" | "annotations";
+
 export interface RenderOptions {
+  /** What the exported canvas contains. "page" is the normal full-page render. */
+  mode?: RenderMode;
   /** target output width; defaults to the snapshot's native width when present */
   width?: number | undefined;
   background?: string;
@@ -117,8 +121,16 @@ export async function renderPageToCanvas(
   ctx.fillStyle = opts.background ?? (page.type === "video" ? "#0c0b0a" : "#11100e");
   ctx.fillRect(0, 0, width, height);
 
+  const mode = opts.mode ?? "page";
   const src = page.snapshot?.dataUrl;
-  if (src && page.type === "video") {
+  const isCleanFrame = mode === "clean-frame";
+  const isAnnotationsOnly = mode === "annotations";
+
+  if (isCleanFrame && page.type !== "video") {
+    throw new Error("Clean-frame export is only available for video pages.");
+  }
+
+  if (src && page.type === "video" && !isAnnotationsOnly) {
     try {
       const img = await loadImage(src);
       // object-fit: contain — never stretch when source AR differs.
@@ -140,6 +152,9 @@ export async function renderPageToCanvas(
     } catch {
       /* keep flat background */
     }
+  } else if (isAnnotationsOnly) {
+    // Transparent canvas: annotation-only export contains no video/UI pixels.
+    ctx.clearRect(0, 0, width, height);
   } else if (page.type !== "video") {
     // subtle ruled background for blank / custom pages
     ctx.strokeStyle = "rgba(245,241,232,0.07)";
@@ -156,11 +171,12 @@ export async function renderPageToCanvas(
   // Legacy snapshots (inkBaked !== false) already contain the flattened ink —
   // drawing the objects again would double every stroke in the export.
   const baked = src && page.type === "video" && page.snapshot?.inkBaked !== false;
-  if (!baked) {
+  if (!isCleanFrame && !baked) {
     renderObjects(ctx, page.objects ?? [], { left: 0, top: 0, width, height });
   }
 
-  if (opts.metadata) drawCaption(ctx, width, height, opts.metadata);
+  // Metadata is deliberately suppressed for clean-frame exports.
+  if (opts.metadata && !isCleanFrame) drawCaption(ctx, width, height, opts.metadata);
 
   return canvas;
 }

@@ -19,7 +19,7 @@ import { drawObject } from "@/lib/videoink/objects";
 import { erasePartialSweep, PartialEraseSession } from "@/lib/videoink/erase-partial";
 import { recognizeShape } from "@/lib/videoink/recognize";
 import { InkFilter, smoothStroke } from "@/lib/videoink/smooth";
-import { pressureThinning, type Prefs } from "@/lib/videoink/prefs";
+import { PEN_PROFILES, pressureThinning, type Prefs } from "@/lib/videoink/prefs";
 import {
   uid,
   type InkPoint,
@@ -44,6 +44,7 @@ interface Props {
   enabled: boolean;
   editingTextId: string | null;
   onEditText: (id: string | null) => void;
+  onToolChange?: (tool: ToolId) => void;
   onRecognized?: (label: string) => void;
 }
 
@@ -60,7 +61,16 @@ type Drag =
   | { mode: "marquee"; id: number; start: Pt; cur: Pt }
   | { mode: "lasso"; id: number; pts: Pt[] }
   | { mode: "move"; id: number; start: Pt; base: PageObject[] }
-  | { mode: "resize"; id: number; handle: Handle; from: Box; base: PageObject[]; cur: Box }
+  | {
+      mode: "resize";
+      id: number;
+      handle: Handle;
+      from: Box;
+      base: PageObject[];
+      cur: Box;
+      keepAspect: boolean;
+      fromCenter: boolean;
+    }
   | { mode: "text"; id: number; start: Pt; cur: Pt };
 
 const ERASER_TOOLS: ToolId[] = ["eraser", "lassoEraser", "freehandEraser", "rectEraser", "circleEraser"];
@@ -84,6 +94,7 @@ export function ObjectCanvas({
   enabled,
   editingTextId,
   onEditText,
+  onToolChange,
   onRecognized,
 }: Props) {
   const baseRef = useRef<HTMLCanvasElement>(null);
@@ -207,9 +218,19 @@ export function ObjectCanvas({
       // Use the exact same sampling pipeline as the committed stroke, so the
       // ink never "jumps" bolder / thinner the moment the pen lifts.
       const raw = makeStroke(d.points, d.pressureMode, tool, prefs, 0);
+      const profile = activeProfile(tool, prefs);
       drawObject(
         ctx,
-        { ...raw, points: smoothStroke(d.points, prefs.smoothing) },
+        {
+          ...raw,
+          points: smoothStroke(
+            d.points,
+            Math.min(
+              1,
+              effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
+            ),
+          ),
+        },
         rect,
       );
     }
@@ -315,6 +336,8 @@ export function ObjectCanvas({
   }, [renderLive]);
 
   const schedule = () => {
+    // Pointer events can arrive much faster than the display refresh rate.
+    // One queued RAF is enough; all current drag/hover state is read at render time.
     if (raf.current == null) raf.current = requestAnimationFrame(renderLive);
   };
 
@@ -386,6 +409,8 @@ export function ObjectCanvas({
           from: selBox,
           cur: selBox,
           base: editor.selected,
+          keepAspect: e.shiftKey,
+          fromCenter: e.altKey,
         };
         return;
       }
@@ -402,6 +427,12 @@ export function ObjectCanvas({
 
       if (under && !editor.selection.includes(under.id) && !(insideSelection && e.shiftKey)) {
         editor.setSelection(e.shiftKey ? [...editor.selection, under.id] : [under.id]);
+        // Selecting a drawable shape/line/arrow hands control to Move so the
+        // next gesture naturally manipulates the selected object instead of
+        // accidentally drawing another shape.
+        if (tool === "select" && ["shape", "line", "arrow"].includes(under.kind)) {
+          onToolChange?.("move");
+        }
         editor.beginTransient();
         drag.current = {
           mode: "move",
@@ -472,7 +503,7 @@ export function ObjectCanvas({
       return;
     }
 
-    filter.current = new InkFilter(prefs.smoothing);
+    filter.current = new InkFilter(effectiveStrokeSmoothing(tool, prefs));
     const seed = filter.current.push(p, true) ?? p;
     drag.current = {
       mode: "ink",
@@ -539,6 +570,7 @@ export function ObjectCanvas({
         if (changed) {
           const result = d.session.result();
           if (result) editor.apply(() => result, false);
+          schedule();
         }
         break;
       }
@@ -565,7 +597,7 @@ export function ObjectCanvas({
         break;
       }
       case "resize": {
-        const to = resizeBox(d.from, d.handle, p);
+        const to = resizeBox(d.from, d.handle, p, d.keepAspect, d.fromCenter);
         d.cur = to;
         const ids = d.base.map((o) => o.id);
         editor.apply(
@@ -592,11 +624,19 @@ export function ObjectCanvas({
 
     if (d.mode === "ink" && d.points.length) {
       const raw = makeStroke(d.points, d.pressureMode, tool, prefs, 0);
-      const stroke = { ...raw, points: smoothStroke(d.points, prefs.smoothing) };
+      const profile = activeProfile(tool, prefs);
+      const smoothing = Math.min(
+        1,
+        effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
+      );
+      const stroke = { ...raw, points: smoothStroke(d.points, smoothing) };
       if (prefs.recognize && tool === "pen") {
         const rec = recognizeShape(raw);
         if (rec) {
-          editor.add(makeShapeFrom(rec.shape, rec.a, rec.b, prefs, stroke.color, stroke.size));
+          const recognized = makeShapeFrom(rec.shape, rec.a, rec.b, prefs, stroke.color, stroke.size);
+          editor.add(recognized);
+          editor.setSelection([recognized.id]);
+          onToolChange?.("move");
           onRecognized?.(rec.shape);
           renderLive();
           return;
@@ -605,7 +645,12 @@ export function ObjectCanvas({
       editor.add(stroke);
     } else if (d.mode === "shape") {
       const dist = Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y);
-      if (dist > 0.008) editor.add(makeShape(d.a, d.b, tool, prefs, 0));
+      if (dist > 0.008) {
+        const shape = makeShape(d.a, d.b, tool, prefs, 0);
+        editor.add(shape);
+        editor.setSelection([shape.id]);
+        onToolChange?.("move");
+      }
     } else if (d.mode === "text") {
       const x0 = Math.min(d.start.x, d.cur.x);
       const y0 = Math.min(d.start.y, d.cur.y);
@@ -769,13 +814,62 @@ function handlePoint(h: Handle, a: Pt, b: Pt): Pt {
   }
 }
 
-function resizeBox(from: Box, handle: Handle, p: Pt): Box {
-  const to = { ...from };
-  if (handle.includes("n")) to.y0 = Math.min(p.y, from.y1 - 0.01);
-  if (handle.includes("s")) to.y1 = Math.max(p.y, from.y0 + 0.01);
-  if (handle.includes("w")) to.x0 = Math.min(p.x, from.x1 - 0.01);
-  if (handle.includes("e")) to.x1 = Math.max(p.x, from.x0 + 0.01);
-  return to;
+function resizeBox(
+  from: Box,
+  handle: Handle,
+  p: Pt,
+  keepAspect = false,
+  fromCenter = false,
+): Box {
+  const w0 = Math.max(0.0001, from.x1 - from.x0);
+  const h0 = Math.max(0.0001, from.y1 - from.y0);
+  const aspect = w0 / h0;
+
+  let x0 = from.x0;
+  let x1 = from.x1;
+  let y0 = from.y0;
+  let y1 = from.y1;
+
+  if (handle.includes("w")) x0 = p.x;
+  if (handle.includes("e")) x1 = p.x;
+  if (handle.includes("n")) y0 = p.y;
+  if (handle.includes("s")) y1 = p.y;
+
+  if (fromCenter) {
+    const cx = (from.x0 + from.x1) / 2;
+    const cy = (from.y0 + from.y1) / 2;
+    if (handle.includes("w") || handle.includes("e")) {
+      const halfW = Math.abs(p.x - cx);
+      x0 = cx - halfW; x1 = cx + halfW;
+    }
+    if (handle.includes("n") || handle.includes("s")) {
+      const halfH = Math.abs(p.y - cy);
+      y0 = cy - halfH; y1 = cy + halfH;
+    }
+  }
+
+  if (keepAspect) {
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    let w = Math.max(Math.abs(x1 - x0), 0.0001);
+    let h = Math.max(Math.abs(y1 - y0), 0.0001);
+    if (handle === "n" || handle === "s") w = h * aspect;
+    else h = w / aspect;
+    if (fromCenter || (handle.length === 2)) {
+      x0 = cx - w / 2; x1 = cx + w / 2;
+      y0 = cy - h / 2; y1 = cy + h / 2;
+    } else if (handle.includes("w")) {
+      x0 = x1 - w; y0 = y1 - h;
+    } else {
+      x1 = x0 + w; y1 = y0 + h;
+    }
+  }
+
+  // Never allow a resize to collapse into a zero/negative box.
+  const min = 0.002;
+  if (x1 - x0 < min) x1 = x0 + min;
+  if (y1 - y0 < min) y1 = y0 + min;
+  return { x0, y0, x1, y1 };
 }
 
 function boxOf(a: Pt, b: Pt): Box {
@@ -794,7 +888,21 @@ function square(a: Pt, p: Pt): Pt {
   return { x: a.x + Math.sign(dx) * m, y: a.y + Math.sign(dy) * m };
 }
 
-export function makeStroke(
+/** Resolve the pen profile that governs the current tool. */
+export function activeProfile(tool: ToolId, prefs: Prefs) {
+  return tool === "highlighter" ? PEN_PROFILES.highlighter : PEN_PROFILES[prefs.penProfile];
+}
+
+export function effectiveStrokeSmoothing(tool: ToolId, prefs: Prefs): number {
+  const profile = tool === "highlighter"
+    ? PEN_PROFILES.highlighter
+    : PEN_PROFILES[prefs.penProfile];
+  // Profile defines the instrument character; the global control gives the
+  // user a predictable final trim without destroying that character.
+  return Math.min(1, Math.max(0, profile.smoothing * 0.7 + prefs.smoothing * 0.3));
+}
+
+function makeStroke(
   points: InkPoint[],
   pressureMode: "real" | "simulated",
   tool: ToolId,
@@ -802,7 +910,17 @@ export function makeStroke(
   z: number,
 ): Stroke {
   const highlighter = tool === "highlighter";
+  const profile = highlighter ? PEN_PROFILES.highlighter : PEN_PROFILES[prefs.penProfile];
   const base = highlighter ? prefs.highlighterSize : prefs.penSize;
+  const pressureFactor =
+    prefs.pressure === "off" ? 0.5 :
+    prefs.pressure === "low" ? 0.35 :
+    prefs.pressure === "high" ? 1.25 : 1;
+  const adjustedPoints = points.map((point) => ({
+    ...point,
+    pressure: Math.max(0, Math.min(1, 0.5 + (point.pressure - 0.5) * pressureFactor)),
+  }));
+  const effectivePressureMode = prefs.pressure === "off" ? "simulated" : pressureMode;
   return {
     kind: "stroke",
     id: uid(),
@@ -810,14 +928,23 @@ export function makeStroke(
     createdAt: Date.now(),
     tool: highlighter ? "highlighter" : "pen",
     color: highlighter ? prefs.highlighterColor : prefs.penColor,
-    opacity: highlighter ? prefs.highlighterOpacity : 1,
+    // Profile opacity is part of the pen's identity. Highlighter keeps its
+    // dedicated UI opacity so the user can tune it independently.
+    opacity: highlighter ? prefs.highlighterOpacity : profile.opacity,
     size: Math.max(0.0008, base),
-    pressureMode,
-    // Pressure now modulates width per point instead of scaling the whole
-    // stroke, which is what makes stylus input feel real.
-    thinning: highlighter ? 0 : pressureThinning(prefs.pressure),
-    smoothing: 0.45 + 0.4 * prefs.smoothing,
-    points,
+    pressureMode: effectivePressureMode,
+    // Persist the selected ink profile on the canonical stroke.
+    profile: highlighter ? "highlighter" : prefs.penProfile,
+    // Use the profile's physical response rather than applying the global
+    // smoothing/pressure preset on top of it. This makes each pen type
+    // genuinely distinct and stable after reload.
+    thinning: highlighter ? 0 : profile.thinning,
+    smoothing: profile.smoothing,
+    pressureExponent: profile.pressureExponent,
+    velocityResponse: profile.velocityResponse,
+    startTaper: profile.startTaper,
+    endTaper: profile.endTaper,
+    points: adjustedPoints,
   };
 }
 

@@ -4,6 +4,10 @@ import { uid, type PageObject } from "@/lib/videoink/types";
 
 const LIMIT = 100;
 
+function objectsEqual(a: PageObject[], b: PageObject[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 interface State {
   objects: PageObject[];
   past: PageObject[][];
@@ -27,7 +31,10 @@ function reducer(state: State, action: Action): State {
     case "set":
       return { ...state, objects: action.value, dirty: true };
     case "commit": {
-      if (action.prevSnapshot === action.value) return { ...state, objects: action.value };
+      // Compare structure, not array identity. A transaction that produced
+      // no real change must not create an undo step or clear redo history.
+      const same = objectsEqual(action.prevSnapshot, action.value);
+      if (same) return { ...state, objects: action.value };
       return {
         ...state,
         objects: action.value,
@@ -78,6 +85,7 @@ export interface Editor {
   canUndo: boolean;
   canRedo: boolean;
   dirty: boolean;
+  isTransacting: boolean;
   setSelection: (ids: string[]) => void;
   /** replace objects; commit=false for transient drags (no history entry) */
   apply: (next: PageObject[] | ((prev: PageObject[]) => PageObject[]), commit?: boolean) => void;
@@ -235,8 +243,16 @@ export function useEditor(initial: PageObject[] = []): Editor {
     [apply, state.selection],
   );
 
-  const undo = useCallback(() => dispatch({ type: "undo" }), []);
-  const redo = useCallback(() => dispatch({ type: "redo" }), []);
+  const undo = useCallback(() => {
+    // Never apply history to a half-finished drag; roll the transaction back first.
+    if (txRef.current !== null) abort();
+    dispatch({ type: "undo" });
+  }, [abort]);
+
+  const redo = useCallback(() => {
+    if (txRef.current !== null) abort();
+    dispatch({ type: "redo" });
+  }, [abort]);
 
   const clear = useCallback(() => {
     apply(() => []);
@@ -261,6 +277,7 @@ export function useEditor(initial: PageObject[] = []): Editor {
     canUndo: state.past.length > 0,
     canRedo: state.future.length > 0,
     dirty: state.dirty,
+    isTransacting: txRef.current !== null,
     setSelection,
     apply,
     beginTransient: begin,

@@ -15,9 +15,16 @@ export const HIGHLIGHTER_COLORS = ["#ffd166", "#7ec8ff", "#8ce99a", "#ff8a7a"];
  * so callers (live preview + commit) always apply the identical curve.
  */
 export function applyPressureCurve(pressure: number, exponent = 1): number {
-  const p = Math.min(1, Math.max(0, pressure));
-  if (exponent === 1) return p;
-  return Math.pow(p, exponent);
+  // Keep pressure finite and normalized. A tiny dead-zone prevents pointer
+  // noise near zero from producing accidental hairline strokes, while still
+  // preserving the full stylus range.
+  const raw = Number.isFinite(pressure) ? pressure : 0.5;
+  const p = Math.min(1, Math.max(0, raw));
+  const deadZone = 0.02;
+  const normalized = p <= deadZone ? 0 : (p - deadZone) / (1 - deadZone);
+  const e = Number.isFinite(exponent) && exponent > 0 ? exponent : 1;
+  if (e === 1) return normalized;
+  return Math.pow(normalized, e);
 }
 
 const FALLBACK_PROFILE: PenProfile = PEN_PROFILES.ballpoint;
@@ -37,9 +44,13 @@ function resolveProfile(stroke: Stroke): PenProfile {
  */
 function strokeOptions(stroke: Stroke, sizePx: number) {
   const profile = resolveProfile(stroke);
+  // Keep profile response centralized so every pen uses the same pressure
+  // semantics and tuning remains deterministic across preview/commit.
+  const pressureScale = Math.max(0.1, Math.min(2, profile.widthScale));
+  const effectiveSize = Math.max(1, sizePx * pressureScale);
   if (stroke.tool === "highlighter") {
     return {
-      size: sizePx,
+      size: effectiveSize,
       thinning: 0,
       smoothing: profile.smoothing,
       streamline: profile.streamline,
@@ -53,7 +64,7 @@ function strokeOptions(stroke: Stroke, sizePx: number) {
   const smoothing = stroke.smoothing ?? profile.smoothing;
 
   return {
-    size: sizePx,
+    size: effectiveSize,
     thinning,
     smoothing,
     streamline: profile.streamline,
@@ -62,8 +73,8 @@ function strokeOptions(stroke: Stroke, sizePx: number) {
     // let perfect-freehand's own simulation double up on our curve.
     simulatePressure: false,
     easing: (t: number) => Math.sin((t * Math.PI) / 2),
-    start: { taper: Math.max(0, profile.startTaper) * sizePx * 4, cap: profile.cap },
-    end: { taper: Math.max(0, profile.endTaper) * sizePx * 4, cap: profile.cap },
+    start: { taper: Math.max(0, profile.startTaper) * effectiveSize * 4, cap: profile.cap },
+    end: { taper: Math.max(0, profile.endTaper) * effectiveSize * 4, cap: profile.cap },
     last: true,
   };
 }

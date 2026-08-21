@@ -16,6 +16,8 @@ export class ExportCancelled extends Error {
 export interface ExportOptions {
   format: ExportFormat;
   filename: string;
+  /** Output content mode: full page, clean video frame, or annotations only. */
+  mode?: "page" | "clean-frame" | "annotations";
   includeDate: boolean;
   includePageNumbers: boolean;
   /** @deprecated use `resolution` instead; kept for backwards compatibility */
@@ -163,6 +165,15 @@ export async function exportPages(
   handle?: ExportHandle,
 ): Promise<void> {
   const total = pages.length;
+  if (total === 0) {
+    throw new Error("Nothing to export: no pages are selected.");
+  }
+  if (!opts.filename.trim()) {
+    throw new Error("Export filename cannot be empty.");
+  }
+  if (opts.mode === "clean-frame" && pages.some((page) => page.type !== "video")) {
+    throw new Error("Clean-frame export requires video pages only.");
+  }
   const stamp = new Date().toISOString().slice(0, 10);
   const base = opts.includeDate ? `${opts.filename}_${stamp}` : opts.filename;
 
@@ -192,7 +203,8 @@ export async function exportPages(
         const width = resolveWidth(opts, page);
         const canvas = await renderPageToCanvas(page, {
           width,
-          metadata: pageMetadata(opts, page, i),
+          mode: opts.mode ?? "page",
+          metadata: opts.mode === "clean-frame" ? undefined : pageMetadata(opts, page, i),
         });
         checkCancelled(handle);
         const useLossless = opts.lossless || looksLowColour(canvas);
@@ -227,6 +239,7 @@ export async function exportPages(
       const width = resolveWidth(opts, page);
       const canvas = await renderPageToCanvas(page, {
         width,
+        mode: opts.mode ?? "page",
         metadata: pageMetadata(opts, page, i),
       });
       checkCancelled(handle);
