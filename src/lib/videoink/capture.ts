@@ -342,7 +342,7 @@ function hideCanvasOverlays(viewportRect: DOMRect): () => void {
 }
 
 export async function captureSnapshot(ctxIn: CaptureContext): Promise<SnapshotInfo> {
-  const { rect, videoEl, youtubeVideoId, viewportRect, session, hideOverlay, restoreOverlay } = ctxIn;
+  const { rect, videoEl, youtubeVideoId, sourceKey, timestamp, viewportRect, session, hideOverlay, restoreOverlay } = ctxIn;
 
   if (videoEl && videoEl.videoWidth && videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
     try {

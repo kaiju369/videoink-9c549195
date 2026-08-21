@@ -335,9 +335,9 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       onError={() => {
         if (source.type === "url") {
           setUrlCapability("blocked");
-          setError("That video URL could not be loaded. The host may block cross-origin playback, require authentication, or the link may not be a media URL.");
+          errorCb.current?.("That video URL could not be loaded. The host may block cross-origin playback, require authentication, or the link may not be a media URL.");
         } else {
-          setError("Video failed to load");
+          errorCb.current?.("Video failed to load");
         }
       }}
       onCanPlay={() => {

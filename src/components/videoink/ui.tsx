@@ -61,7 +61,7 @@ import {
   type ActionId,
   type KeyMap,
 } from "@/lib/videoink/shortcuts";
-import { PEN_PRESETS, PEN_PROFILE_LIST, type Prefs } from "@/lib/videoink/prefs";
+import { PEN_PRESETS, PEN_PROFILE_LIST, PEN_PROFILES, type Prefs } from "@/lib/videoink/prefs";
 import { formatTime, type Page, type ShapeKind, type TextObject, type ToolId } from "@/lib/videoink/types";
 import type { ExportFormat } from "@/lib/videoink/export";
 
@@ -494,7 +494,6 @@ export function TextEditorOverlay({
   return (
     <textarea
       ref={ref}
-      ref={ref}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -538,6 +537,7 @@ export type LibraryView = Prefs["libraryView"];
 export type LibrarySort = Prefs["librarySort"];
 
 export interface LibraryProps {
+  tool?: ToolId;
   pages: Page[];
   currentSourceKey: string | null;
   activeId: string | null;

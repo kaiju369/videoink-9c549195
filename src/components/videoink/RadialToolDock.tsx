@@ -263,7 +263,6 @@ export function RadialToolDock(p: RadialToolDockProps) {
         <div
           id={menuId}
           role="menu"
-          role="menu"
           aria-label="Quick tools"
           onKeyDown={onMenuKeyDown}
           className={cn("absolute inset-0", !open && "pointer-events-none")}

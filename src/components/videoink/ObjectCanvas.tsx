@@ -226,7 +226,7 @@ export function ObjectCanvas({
             d.points,
             Math.min(
               1,
-              effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
+              effectiveStrokeSmoothing(tool, prefs) * 0.8 + activeProfile(tool, prefs).streamline * 0.2,
             ),
           ),
         },
@@ -625,7 +625,7 @@ export function ObjectCanvas({
       const raw = makeStroke(d.points, d.pressureMode, tool, prefs, 0);
       const smoothing = Math.min(
         1,
-        effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
+        effectiveStrokeSmoothing(tool, prefs) * 0.8 + activeProfile(tool, prefs).streamline * 0.2,
       );
       const stroke = { ...raw, points: smoothStroke(d.points, smoothing) };
       if (prefs.recognize && tool === "pen") {
