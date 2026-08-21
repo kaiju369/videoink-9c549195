@@ -886,6 +886,11 @@ function square(a: Pt, p: Pt): Pt {
   return { x: a.x + Math.sign(dx) * m, y: a.y + Math.sign(dy) * m };
 }
 
+/** Resolve the pen profile that governs the current tool. */
+export function activeProfile(tool: ToolId, prefs: Prefs) {
+  return tool === "highlighter" ? PEN_PROFILES.highlighter : PEN_PROFILES[prefs.penProfile];
+}
+
 export function effectiveStrokeSmoothing(tool: ToolId, prefs: Prefs): number {
   const profile = tool === "highlighter"
     ? PEN_PROFILES.highlighter
