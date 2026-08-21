@@ -5,7 +5,7 @@ for(const n of [
  'page.type === "video"',
  'sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))',
  "const navigateSavedFrame = useCallback",
- "openLinkedPage(framePages[targetIndex])",
+ "const target = framePages[targetIndex]",
  'title="Previous saved frame"',
  'title="Next saved frame"',
  'e.altKey && e.key === "ArrowLeft"',

@@ -218,6 +218,7 @@ export function ObjectCanvas({
       // Use the exact same sampling pipeline as the committed stroke, so the
       // ink never "jumps" bolder / thinner the moment the pen lifts.
       const raw = makeStroke(d.points, d.pressureMode, tool, prefs, 0);
+      const profile = activeProfile(tool, prefs);
       drawObject(
         ctx,
         {
@@ -226,7 +227,7 @@ export function ObjectCanvas({
             d.points,
             Math.min(
               1,
-              effectiveStrokeSmoothing(tool, prefs) * 0.8 + activeProfile(tool, prefs).streamline * 0.2,
+              effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
             ),
           ),
         },
@@ -623,9 +624,10 @@ export function ObjectCanvas({
 
     if (d.mode === "ink" && d.points.length) {
       const raw = makeStroke(d.points, d.pressureMode, tool, prefs, 0);
+      const profile = activeProfile(tool, prefs);
       const smoothing = Math.min(
         1,
-        effectiveStrokeSmoothing(tool, prefs) * 0.8 + activeProfile(tool, prefs).streamline * 0.2,
+        effectiveStrokeSmoothing(tool, prefs) * 0.8 + profile.streamline * 0.2,
       );
       const stroke = { ...raw, points: smoothStroke(d.points, smoothing) };
       if (prefs.recognize && tool === "pen") {
