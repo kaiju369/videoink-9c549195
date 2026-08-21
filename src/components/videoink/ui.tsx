@@ -899,6 +899,7 @@ export interface ExportRequest {
   filename: string;
   includeDate: boolean;
   includePageNumbers: boolean;
+  mode: "page" | "clean-frame" | "annotations";
 }
 
 export function ExportDialog({
@@ -927,6 +928,7 @@ export function ExportDialog({
     filename: defaultFilename,
     includeDate: true,
     includePageNumbers: true,
+    mode: "page",
   });
   useEffect(() => {
     if (open) setReq((r) => ({ ...r, filename: defaultFilename, format: defaultFormat }));
@@ -984,6 +986,18 @@ export function ExportDialog({
           </div>
 
           <div>
+            <Label className="text-xs">Content</Label>
+            <Select value={req.mode} onValueChange={(v) => setReq({ ...req, mode: v as ExportRequest["mode"] })}>
+              <SelectTrigger aria-label="Export content mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="page">Frame + annotations</SelectItem>
+                <SelectItem value="clean-frame">Clean video frame only</SelectItem>
+                <SelectItem value="annotations">Annotations only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
             <Label className="text-xs" htmlFor="vi-filename">Filename</Label>
             <Input
               id="vi-filename"
@@ -1009,6 +1023,7 @@ export function ExportDialog({
           <div className="rounded-md border border-border/70 bg-muted/30 p-2 text-xs text-muted-foreground">
             <div>Pages: {pageCount}</div>
             <div>Order: {req.order}</div>
+            <div>Content: {req.mode}</div>
             <div>
               File: {req.filename}
               {req.includeDate ? `_${new Date().toISOString().slice(0, 10)}` : ""}.
